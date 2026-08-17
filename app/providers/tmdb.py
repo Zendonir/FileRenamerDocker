@@ -77,6 +77,9 @@ class TMDB:
                 "overview": s.get("overview"),
                 "poster": f"https://image.tmdb.org/t/p/w185{s['poster_path']}" if s.get("poster_path") else None,
                 "popularity": s.get("popularity", 0),
+                "original_language": s.get("original_language"),
+                "genre_ids": s.get("genre_ids", []),
+                "origin_country": s.get("origin_country", []),
             }
             for s in results[:12]
         ]
@@ -118,4 +121,6 @@ class TMDB:
             "year": int(s["first_air_date"][:4]) if s.get("first_air_date") else None,
             "genres": [g["name"] for g in s.get("genres", [])],
             "rating": s.get("vote_average"),
+            "original_language": s.get("original_language"),
+            "origin_country": s.get("origin_country", []),
         }

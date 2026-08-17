@@ -17,7 +17,9 @@ Namensschema mit Platzhaltern, Vorschau vor der Ausführung und Verschieben ans 
 - **Erkennung** von Titel, Jahr, Staffel, Episode, Auflösung, Codec, Release-Gruppe (via `guessit`)
 - **Abgleich** mit TMDB/TVDB inkl. Trefferqualität in Prozent; Serien wahlweise über TVDB oder TMDB
 - **Manuelle Korrektur**: pro Datei den richtigen Treffer suchen und auswählen; Zielpfad direkt editierbar
-- **Namensschema** mit FileBot-ähnlichen Platzhaltern und Live-Vorschau in den Einstellungen
+- **Drei getrennte Kategorien** – Filme, Serien und Anime, jeweils mit eigenem Zielordner
+  und eigenem Namensschema; Anime werden automatisch erkannt und sind manuell umschaltbar
+- **Schema-Editor mit Bubbles** – Bausteine anklicken, per Maus umsortieren, Live-Vorschau
 - **Aktionen**: Verschieben, Kopieren, Hardlink, Symlink oder Trockenlauf („Nur testen“)
 - **Mehrteilige Episoden** (`S01E01E02`), Untertitel-Dateien mit Sprachkürzel, Teil-/CD-Nummern
 - **Verlauf mit Undo** – jede Operation lässt sich einzeln zurücknehmen, mit Suche und Filter
@@ -70,11 +72,14 @@ Hardlinks funktionieren gar nicht.
 
 ## Ablauf im Webinterface
 
-1. **Einstellungen**: API-Keys, Quellordner, Zielordner, Namensschema, Standardaktion.
+1. **Einstellungen**: API-Keys, Quellordner, Zielordner je Kategorie, die drei
+   Namensschemata im Bubble-Editor, Anime-Erkennung und Standardaktion.
 2. **Umbenennen → Scannen & Zuordnen**: Dateien werden analysiert und abgeglichen.
    Farbcodierung: grün = sicher erkannt, gelb = bitte prüfen, rot = kein Treffer.
 3. Bei gelb/rot auf **Treffer wählen** klicken und den richtigen Eintrag suchen.
-   Zielpfade lassen sich zusätzlich direkt im Feld anpassen.
+   Zielpfade lassen sich zusätzlich direkt im Feld anpassen, und über das Auswahlfeld
+   daneben schaltest du die Kategorie um, falls ein Anime als Serie erkannt wurde.
+   Die Chips oben rechts filtern die Liste nach Film, Serie oder Anime.
 4. Dateien anhaken, Aktion wählen, **Übernehmen**. Mit „Nur testen“ passiert nichts
    auf der Platte – ideal für den ersten Durchlauf.
 5. **Verlauf**: Falls etwas schiefging, Einträge anhaken und rückgängig machen.
@@ -111,17 +116,61 @@ Wenn also eine Datei falsch umbenannt wurde: im **Log** nachsehen, welcher Treff
 gewählt wurde, dann im **Verlauf** genau diesen Eintrag suchen und zurücknehmen.
 Danach die Datei erneut scannen und über **Treffer wählen** korrekt zuordnen.
 
-## Namensschema
+## Kategorien: Film, Serie, Anime
 
-Standard:
+Jede Datei landet in genau einer von drei Kategorien, und jede Kategorie hat ihren
+**eigenen Zielordner und ihr eigenes Namensschema**:
 
-```
-Filme:   {n} ({y})/{n} ({y}){' CD'+pi}{' '+vf}
-Serien:  {n}/Season {s.pad(2)}/{n} - {s00e00} - {t}
-```
+| Kategorie | Zielordner | Standardschema |
+|---|---|---|
+| 🎬 Film | `/data/movies` | `{n} ({y})/{n} ({y}){' CD'+pi}{' '+vf}` |
+| 📺 Serie | `/data/series` | `{n}/Season {s.pad(2)}/{n} - {s00e00} - {t}` |
+| 🎌 Anime | `/data/anime` | `{n}/{n} - {abs.pad(3)|s00e00} - {t}` |
 
-ergibt z. B. `Der Pate (1972)/Der Pate (1972) 1080p.mkv` und
-`Dark/Season 02/Dark - S02E05 - Lost.mkv`.
+### Anime-Erkennung
+
+Ob eine Serie ein Anime ist, entscheidet der Container in dieser Reihenfolge:
+
+1. **Pfad-Schlüsselwörter** – liegt die Datei unter `.../Anime/...` oder stammt sie von
+   einer typischen Fansub-Gruppe (`[SubsPlease]`, `[Erai-raws]` …), gilt das als
+   eindeutiger Wunsch und schlägt alles andere. Die Liste ist in den Einstellungen frei
+   editierbar.
+2. **Herkunft und Genre aus der Datenbank** – japanische Originalsprache bzw. Herkunftsland
+   **in Kombination mit** dem Animations-Genre.
+
+Diese Kombination ist bewusst gewählt: Die Simpsons sind animiert, aber kein Anime;
+Shōgun ist japanisch, aber kein Anime. Beide Fälle sind durch Tests abgedeckt.
+
+Die Erkennung lässt sich komplett abschalten (dann ist alles „Serie“). Unabhängig davon
+kannst du **die Kategorie jeder einzelnen Datei im Umbenennen-Tab per Auswahlfeld
+umschalten** – Zielpfad und Schema werden sofort neu berechnet.
+
+Das Anime-Schema nutzt standardmäßig die **absolute Episodennummer** (`{abs}`), weil
+Fansubs so zählen (`Serie - 137`). Findet die Datenbank dazu nichts, fällt das
+Standardschema per `{abs.pad(3)|s00e00}` automatisch auf `S01E12` zurück. Über die
+Einstellung „Absolute Episodennummer bevorzugen“ steuerst du das Verhalten; die
+Datenquelle für Anime (TVDB oder TMDB) ist getrennt von der für normale Serien wählbar.
+
+## Namensschema-Editor
+
+Unter **Einstellungen → Namensschema** gibt es je einen Editor für Filme, Serien und
+Anime. Das Schema wird dort nicht getippt, sondern aus **Bubbles** zusammengesetzt:
+
+- **Anklicken** eines Bausteins in der Palette hängt ihn hinten an. Die Palette zeigt
+  nur, was zur Kategorie passt – Staffel und Episode tauchen beim Film-Schema nicht auf.
+- **Verschieben** per Maus (Drag & Drop) sortiert die Bubbles um; eine farbige Kante
+  zeigt an, wo die Bubble landet.
+- **✕** auf einer Bubble entfernt sie.
+- **Textbausteine** sind direkt beschreibbar – für Trennzeichen wie ` - ` oder Klammern.
+- **`/`** ist eine eigene Bubble und trennt Ordnerebenen.
+- Die **Live-Vorschau** darunter zeigt bei jeder Änderung sofort den fertigen Dateinamen
+  an einem Beispiel der jeweiligen Kategorie.
+- Über **Als Text bearbeiten** lässt sich das Schema weiterhin direkt tippen – beide
+  Ansichten bleiben synchron.
+
+Ergibt z. B. `Der Pate (1972)/Der Pate (1972) 1080p.mkv`,
+`Dark/Season 02/Dark - S02E05 - Lost.mkv` und
+`Frieren/Frieren - 012 - Ende der Reise.mkv`.
 
 | Platzhalter | Bedeutung | | Platzhalter | Bedeutung |
 |---|---|---|---|---|
@@ -134,6 +183,7 @@ ergibt z. B. `Der Pate (1972)/Der Pate (1972) 1080p.mkv` und
 | `{source}` | Quelle (BluRay …) | | `{group}` | Release-Gruppe |
 | `{pi}` | Teil-/CD-Nummer | | `{collection}` | Filmreihe |
 | `{imdb}` | IMDb-ID | | `{lang}` | Sprachen |
+| `{e00}` | Episode `02` | | `{id}` | Datenbank-ID |
 
 Regeln:
 
@@ -157,6 +207,7 @@ Das Webinterface nutzt eine reguläre REST-API, die sich auch skripten lässt:
 | `POST /api/scan` → `GET /api/scan/{id}` | Scan starten, Fortschritt abfragen |
 | `POST /api/search` | Datenbanksuche |
 | `POST /api/select` | Treffer manuell zuweisen |
+| `POST /api/category` | Kategorie einer Datei umschalten (Film/Serie/Anime) |
 | `POST /api/apply` | Aktion ausführen |
 | `GET /api/history`, `POST /api/undo` | Verlauf und Rücknahme |
 | `GET /api/logs` | Log-Zeilen, gefiltert nach `level` und `q` |

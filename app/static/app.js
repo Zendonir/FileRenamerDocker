@@ -2,8 +2,14 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 const state = {
-  jobId: null, items: [], filter: 'all', selected: new Set(),
-  history: [], histSel: new Set(), logTimer: null,
+  jobId: null, items: [], filter: 'all', category: 'all', selected: new Set(),
+  history: [], histSel: new Set(), logTimer: null, editors: {},
+};
+
+const CATEGORIES = {
+  movie: { label: 'Film', icon: '🎬' },
+  series: { label: 'Serie', icon: '📺' },
+  anime: { label: 'Anime', icon: '🎌' },
 };
 
 async function api(path, options = {}) {
@@ -27,8 +33,41 @@ $$('.tab').forEach((tab) => tab.addEventListener('click', () => {
   if (tab.dataset.tab === 'log') { loadLog(); startLogAuto(); } else stopLogAuto();
 }));
 
+/* ---------- Schema-Editoren ---------- */
+const SCHEMES = ['movie', 'series', 'anime'];
+
+$$('.scheme-tab').forEach((tab) => tab.addEventListener('click', () => {
+  $$('.scheme-tab').forEach((t) => t.classList.toggle('active', t === tab));
+  $$('.scheme-panel').forEach((p) =>
+    p.classList.toggle('active', p.dataset.schemePanel === tab.dataset.scheme));
+}));
+
+async function schemePreview(kind, template, target) {
+  try {
+    const res = await api('/api/preview-format', { method: 'POST', body: { kind, template } });
+    target.textContent = `Beispiel: ${res.preview}`;
+    target.style.color = '';
+  } catch (err) {
+    target.textContent = `Ungültig: ${err.message}`;
+    target.style.color = 'var(--err)';
+  }
+}
+
+for (const kind of SCHEMES) {
+  let timer;
+  state.editors[kind] = new SchemeEditor(
+    $(`[data-editor="${kind}"]`),
+    kind,
+    $('#settings-form').elements[`${kind}_format`],
+    (k, template, previewEl) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => schemePreview(k, template, previewEl), 300);
+    },
+  );
+}
+
 /* ---------- Einstellungen ---------- */
-const LIST_FIELDS = ['extensions', 'subtitle_extensions'];
+const LIST_FIELDS = ['extensions', 'subtitle_extensions', 'anime_keywords'];
 
 async function loadSettings() {
   const s = await api('/api/settings');
@@ -42,8 +81,7 @@ async function loadSettings() {
     else field.value = value ?? '';
   }
   $('#action-select').value = s.action || 'move';
-  updatePreview('movie');
-  updatePreview('series');
+  for (const kind of SCHEMES) state.editors[kind].set(s[`${kind}_format`] || '');
   return s;
 }
 
@@ -59,6 +97,12 @@ $('#settings-form').addEventListener('submit', async (event) => {
     else if (field.type === 'number') payload[field.name] = Number(field.value);
     else if (field.value !== '***' && field.value !== '') payload[field.name] = field.value;
   }
+  for (const kind of SCHEMES) {
+    if (!payload[`${kind}_format`]) {
+      $('#settings-status').textContent = `Das Schema für ${CATEGORIES[kind].label} darf nicht leer sein.`;
+      return;
+    }
+  }
   try {
     await api('/api/settings', { method: 'POST', body: payload });
     $('#settings-status').textContent = 'Gespeichert.';
@@ -66,24 +110,6 @@ $('#settings-form').addEventListener('submit', async (event) => {
     $('#settings-status').textContent = `Fehler: ${err.message}`;
   }
   setTimeout(() => { $('#settings-status').textContent = ''; }, 3000);
-});
-
-async function updatePreview(kind) {
-  const input = $(`[data-preview="${kind}"]`);
-  const out = $(`#preview-${kind}`);
-  try {
-    const res = await api('/api/preview-format', { method: 'POST', body: { kind, template: input.value } });
-    out.textContent = `Beispiel: ${res.preview}`;
-  } catch (err) {
-    out.textContent = `Ungültig: ${err.message}`;
-  }
-}
-$$('[data-preview]').forEach((input) => {
-  let timer;
-  input.addEventListener('input', () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => updatePreview(input.dataset.preview), 300);
-  });
 });
 
 /* ---------- Modal ---------- */
@@ -174,9 +200,15 @@ async function poll(jobId) {
 }
 
 /* ---------- Ergebnisliste ---------- */
-$$('.chip').forEach((chip) => chip.addEventListener('click', () => {
-  $$('.chip').forEach((c) => c.classList.toggle('active', c === chip));
+$$('.chip[data-filter]').forEach((chip) => chip.addEventListener('click', () => {
+  $$('.chip[data-filter]').forEach((c) => c.classList.toggle('active', c === chip));
   state.filter = chip.dataset.filter;
+  render();
+}));
+
+$$('.chip[data-cat]').forEach((chip) => chip.addEventListener('click', () => {
+  $$('.chip[data-cat]').forEach((c) => c.classList.toggle('active', c === chip));
+  state.category = chip.dataset.cat;
   render();
 }));
 
@@ -190,7 +222,9 @@ $('#select-all').addEventListener('change', (e) => {
 });
 
 function visibleItems() {
-  return state.items.filter((i) => state.filter === 'all' || i.status === state.filter);
+  return state.items.filter((i) =>
+    (state.filter === 'all' || i.status === state.filter) &&
+    (state.category === 'all' || (i.category || 'movie') === state.category));
 }
 
 function render() {
@@ -222,9 +256,10 @@ function render() {
     } else {
       info.insertAdjacentHTML('beforeend', `<div class="dest">${item.error || 'Kein Ziel ermittelt'}</div>`);
     }
+    const cat = CATEGORIES[item.category] || CATEGORIES.movie;
     const meta = [
       `<span class="badge ${badge}">${{ matched: 'Erkannt', review: 'Prüfen', unmatched: 'Ohne Treffer' }[item.status]}</span>`,
-      `<span class="badge">${g.type === 'episode' ? 'Serie' : 'Film'}</span>`,
+      `<span class="badge cat-${item.category || 'movie'}">${cat.icon} ${cat.label}</span>`,
       item.match ? `<span>${item.match.title}${item.match.year ? ` (${item.match.year})` : ''} · ${item.match.provider.toUpperCase()}</span>` : '',
       `<span>Qualität ${Math.round((item.confidence || 0) * 100)} %</span>`,
       item.is_subtitle ? '<span class="badge">Untertitel</span>' : '',
@@ -238,6 +273,28 @@ function render() {
     pick.onclick = () => openPicker(item);
     actions.appendChild(pick);
 
+    // Kategorie umschalten – wichtig, wenn ein Anime als normale Serie erkannt wurde.
+    const catSelect = document.createElement('select');
+    catSelect.title = 'Kategorie und damit Namensschema und Zielordner';
+    catSelect.innerHTML = Object.entries(CATEGORIES)
+      .map(([key, c]) => `<option value="${key}">${c.icon} ${c.label}</option>`).join('');
+    catSelect.value = item.category || 'movie';
+    catSelect.disabled = !item.match;
+    catSelect.onchange = async () => {
+      try {
+        const updated = await api('/api/category', {
+          method: 'POST',
+          body: { job_id: state.jobId, src: item.src, category: catSelect.value },
+        });
+        Object.assign(item, updated);
+        render();
+      } catch (err) {
+        alert(err.message);
+        catSelect.value = item.category || 'movie';
+      }
+    };
+    actions.appendChild(catSelect);
+
     el.append(check, info, actions);
     container.appendChild(el);
   }
@@ -246,15 +303,15 @@ function render() {
 
 function openPicker(item) {
   const g = item.guess || {};
-  const kind = g.type === 'episode' ? 'series' : 'movie';
   openModal(`Treffer wählen – ${item.name}`, (body) => {
     const bar = document.createElement('div');
     bar.className = 'search-bar';
     const input = document.createElement('input');
     input.value = g.title || '';
     const kindSel = document.createElement('select');
-    kindSel.innerHTML = '<option value="movie">Film</option><option value="series">Serie</option>';
-    kindSel.value = kind;
+    kindSel.innerHTML = Object.entries(CATEGORIES)
+      .map(([key, c]) => `<option value="${key}">${c.icon} ${c.label}</option>`).join('');
+    kindSel.value = item.category || 'movie';
     const go = document.createElement('button');
     go.className = 'primary';
     go.textContent = 'Suchen';

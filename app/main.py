@@ -37,11 +37,17 @@ class Settings(BaseModel):
     tvdb_api_key: str | None = None
     language: str | None = None
     series_provider: str | None = None
+    anime_provider: str | None = None
+    anime_detection: str | None = None
+    anime_keywords: list[str] | None = None
+    anime_absolute: bool | None = None
     source_dirs: list[str] | None = None
     movie_target: str | None = None
     series_target: str | None = None
+    anime_target: str | None = None
     movie_format: str | None = None
     series_format: str | None = None
+    anime_format: str | None = None
     action: str | None = None
     min_confidence: float | None = None
     extensions: list[str] | None = None
@@ -68,7 +74,13 @@ class SelectRequest(BaseModel):
     src: str
     provider: str
     id: int
-    kind: str = "movie"
+    kind: str = "movie"          # movie | series | anime
+
+
+class CategoryRequest(BaseModel):
+    job_id: str
+    src: str
+    category: str                # movie | series | anime
 
 
 class ApplyItem(BaseModel):
@@ -144,18 +156,25 @@ async def preview_format(payload: dict):
     """Testet ein Format-Template mit Beispieldaten."""
     kind = payload.get("kind", "movie")
     template = payload.get("template", "")
+    samples = {
+        "movie": {
+            "name": "Der Pate", "year": 1972, "collection": "Der Pate Reihe",
+            "imdb_id": "tt0068646", "part": None,
+        },
+        "series": {
+            "name": "Dark", "year": 2017, "season": 2, "episodes": [5], "episode": 5,
+            "episode_title": "Lost", "absolute": 13, "air_date": "2019-06-21",
+        },
+        "anime": {
+            "name": "Shingeki no Kyojin", "year": 2013, "season": 1, "episodes": [3],
+            "episode": 3, "episode_title": "Nacht der Abschlussfeier", "absolute": 3,
+            "air_date": "2013-04-21",
+        },
+    }
     sample = {
-        "name": "Beispiel Serie" if kind == "series" else "Beispiel Film",
-        "year": 2021,
-        "season": 2,
-        "episodes": [5],
-        "episode": 5,
-        "episode_title": "Die Rückkehr",
-        "resolution": "1080p",
-        "video_codec": "H.264",
-        "audio_codec": "DTS",
-        "source": "Blu-ray",
-        "release_group": "GROUP",
+        **samples.get(kind, samples["movie"]),
+        "resolution": "1080p", "video_codec": "H.264", "audio_codec": "DTS",
+        "source": "Blu-ray", "release_group": "GROUP", "languages": ["de", "ja"],
         "extension": ".mkv",
     }
     try:
@@ -252,26 +271,22 @@ async def select(payload: SelectRequest):
     if not item:
         raise HTTPException(status_code=404, detail="Datei im Job nicht gefunden.")
 
+    category = payload.kind if payload.kind in ("movie", "series", "anime") else "movie"
     settings = config.load()
     matcher = Matcher(settings)
     guess = dict(item["guess"])
-    guess["type"] = "episode" if payload.kind == "series" else "movie"
+    guess["type"] = "movie" if category == "movie" else "episode"
 
     async with httpx.AsyncClient() as client:
         source = matcher.tvdb if payload.provider == "tvdb" else matcher.tmdb
         try:
-            if guess["type"] == "episode":
-                match = await source.series_details(client, payload.id)
-                episodes = None
-                if guess.get("season") is not None:
-                    episodes = [
-                        await matcher._episode_info(client, payload.provider, payload.id,
-                                                    guess["season"], ep)
-                        for ep in (guess.get("episodes") or [])
-                    ]
-            else:
+            if category == "movie":
                 match = await matcher.tmdb.movie_details(client, payload.id)
                 episodes = None
+            else:
+                match = await source.series_details(client, payload.id)
+                episodes = await matcher.episodes_for(client, category, payload.provider,
+                                                      payload.id, guess)
         except (httpx.HTTPError, RuntimeError) as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -279,13 +294,53 @@ async def select(payload: SelectRequest):
     item["match"] = match
     item["confidence"] = 1.0
     item["status"] = "matched"
+    item["category"] = category
     item["error"] = None
     try:
-        item["dest"] = matcher.destination(guess, match, Path(payload.src), episodes)
+        item["dest"] = matcher.destination(guess, match, Path(payload.src), episodes, category)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    log.info("Manuell zugewiesen: %s -> '%s' (%s #%s)",
-             Path(payload.src).name, match.get("title"), payload.provider, payload.id)
+    log.info("Manuell zugewiesen: %s [%s] -> '%s' (%s #%s)",
+             Path(payload.src).name, category, match.get("title"), payload.provider, payload.id)
+    return item
+
+
+@app.post("/api/category")
+async def set_category(payload: CategoryRequest):
+    """Kategorie einer Datei umschalten (z. B. Serie -> Anime) und Ziel neu berechnen."""
+    if payload.category not in ("movie", "series", "anime"):
+        raise HTTPException(status_code=400, detail="Unbekannte Kategorie.")
+    job = JOBS.get(payload.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job unbekannt.")
+    item = next((i for i in job["items"] if i["src"] == payload.src), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Datei im Job nicht gefunden.")
+    if not item.get("match"):
+        raise HTTPException(status_code=400, detail="Erst einen Treffer zuweisen.")
+
+    matcher = Matcher(config.load())
+    guess = dict(item["guess"])
+    guess["type"] = "movie" if payload.category == "movie" else "episode"
+    match = item["match"]
+
+    episodes = None
+    if payload.category != "movie":
+        async with httpx.AsyncClient() as client:
+            try:
+                episodes = await matcher.episodes_for(
+                    client, payload.category, match.get("provider", "tvdb"), match["id"], guess)
+            except (httpx.HTTPError, RuntimeError) as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    item["guess"] = guess
+    item["category"] = payload.category
+    try:
+        item["dest"] = matcher.destination(guess, match, Path(payload.src),
+                                           episodes, payload.category)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    log.info("Kategorie geändert: %s -> %s", Path(payload.src).name, payload.category)
     return item
 
 

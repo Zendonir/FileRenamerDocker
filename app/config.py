@@ -16,8 +16,14 @@ DEFAULTS = {
     "source_dirs": ["/data/input"],
     "movie_target": "/data/movies",
     "series_target": "/data/series",
+    "anime_target": "/data/anime",
     "movie_format": "{n} ({y})/{n} ({y}){' CD'+pi}{' '+vf}",
     "series_format": "{n}/Season {s.pad(2)}/{n} - {s00e00} - {t}",
+    "anime_format": "{n}/{n} - {abs.pad(3)|s00e00} - {t}",
+    "anime_detection": "auto",           # auto | off
+    "anime_keywords": ["anime", "subsplease", "erai-raws", "horriblesubs", "judas", "ember"],
+    "anime_provider": "tvdb",            # Datenquelle speziell für Anime
+    "anime_absolute": True,              # absolute Episodennummer bevorzugen
     "action": "move",                    # move | copy | hardlink | symlink | test
     "min_confidence": 0.7,
     "extensions": [

@@ -39,6 +39,11 @@
       <button class="chip" data-filter="matched">Erkannt</button>
       <button class="chip" data-filter="review">Prüfen</button>
       <button class="chip" data-filter="unmatched">Ohne Treffer</button>
+      <span class="spacer"></span>
+      <button class="chip" data-cat="all">Alle Typen</button>
+      <button class="chip" data-cat="movie">🎬 Filme</button>
+      <button class="chip" data-cat="series">📺 Serien</button>
+      <button class="chip" data-cat="anime">🎌 Anime</button>
     </div>
     <div id="results"></div>
     <p id="empty-hint" class="hint">Noch kein Scan durchgeführt. Quellordner und API-Keys findest du unter „Einstellungen“.</p>
@@ -76,30 +81,54 @@
           <span class="path-row"><input name="movie_target"><button type="button" class="browse" data-target="movie_target">…</button></span></label>
         <label>Zielordner Serien
           <span class="path-row"><input name="series_target"><button type="button" class="browse" data-target="series_target">…</button></span></label>
+        <label>Zielordner Anime
+          <span class="path-row"><input name="anime_target"><button type="button" class="browse" data-target="anime_target">…</button></span></label>
       </fieldset>
 
       <fieldset>
         <legend>Namensschema</legend>
-        <label>Filme <input name="movie_format" data-preview="movie"></label>
-        <p class="preview" id="preview-movie"></p>
-        <label>Serien <input name="series_format" data-preview="series"></label>
-        <p class="preview" id="preview-series"></p>
-        <details>
-          <summary>Verfügbare Platzhalter</summary>
-          <ul class="tokens">
-            <li><code>{n}</code> Titel</li><li><code>{y}</code> Jahr</li>
-            <li><code>{s}</code> Staffel</li><li><code>{e}</code> Episode</li>
-            <li><code>{t}</code> Episodentitel</li><li><code>{s00e00}</code> S01E02</li>
-            <li><code>{sxe}</code> 1x02</li><li><code>{abs}</code> Absolute Nummer</li>
-            <li><code>{airdate}</code> Erstausstrahlung</li><li><code>{vf}</code> Auflösung</li>
-            <li><code>{vc}</code> Video-Codec</li><li><code>{ac}</code> Audio-Codec</li>
-            <li><code>{source}</code> Quelle</li><li><code>{group}</code> Release-Gruppe</li>
-            <li><code>{pi}</code> Teil/CD</li><li><code>{collection}</code> Filmreihe</li>
-            <li><code>{imdb}</code> IMDb-ID</li><li><code>{lang}</code> Sprachen</li>
-          </ul>
-          <p><code>{s.pad(2)}</code> füllt mit Nullen auf, <code>{'CD '+pi}</code> gibt den Text nur aus,
-             wenn die Variable gefüllt ist, <code>{t|n}</code> nutzt den ersten gefüllten Wert.</p>
-        </details>
+        <div class="scheme-tabs">
+          <button type="button" class="scheme-tab active" data-scheme="movie">🎬 Filme</button>
+          <button type="button" class="scheme-tab" data-scheme="series">📺 Serien</button>
+          <button type="button" class="scheme-tab" data-scheme="anime">🎌 Anime</button>
+        </div>
+
+        <div class="scheme-panel active" data-scheme-panel="movie">
+          <div class="editor" data-editor="movie"></div>
+          <input type="hidden" name="movie_format">
+        </div>
+        <div class="scheme-panel" data-scheme-panel="series">
+          <div class="editor" data-editor="series"></div>
+          <input type="hidden" name="series_format">
+        </div>
+        <div class="scheme-panel" data-scheme-panel="anime">
+          <div class="editor" data-editor="anime"></div>
+          <input type="hidden" name="anime_format">
+        </div>
+
+        <p class="hint editor-help">
+          Bausteine unten anklicken, um sie ans Ende anzuhängen. Bubbles lassen sich per
+          Maus verschieben, per Klick auf <b>✕</b> entfernen; Textbausteine sind direkt
+          beschreibbar. <b>/</b> trennt Ordnerebenen.
+        </p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Anime-Erkennung</legend>
+        <label>Automatische Erkennung
+          <select name="anime_detection">
+            <option value="auto">An – nach Pfad, Fansub-Gruppe, Sprache und Genre</option>
+            <option value="off">Aus – alles als normale Serie behandeln</option>
+          </select></label>
+        <label>Datenquelle für Anime
+          <select name="anime_provider">
+            <option value="tvdb">TheTVDB</option>
+            <option value="tmdb">TMDB</option>
+          </select></label>
+        <label>Schlüsselwörter im Pfad (Komma-getrennt, erzwingen „Anime“)
+          <input name="anime_keywords"></label>
+        <label class="inline"><input name="anime_absolute" type="checkbox">
+          Absolute Episodennummer bevorzugen (typisch für Fansubs wie „Serie - 137“)</label>
       </fieldset>
 
       <fieldset>
@@ -170,6 +199,7 @@
   </div>
 </div>
 
+<script src="/static/editor.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

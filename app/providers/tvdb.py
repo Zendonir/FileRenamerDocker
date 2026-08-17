@@ -67,6 +67,9 @@ class TVDB:
                 "overview": (s.get("overviews") or {}).get(self.language) or s.get("overview"),
                 "poster": s.get("image_url") or s.get("image"),
                 "popularity": 0,
+                "original_language": s.get("primary_language"),
+                "origin_country": [s["country"]] if s.get("country") else [],
+                "genres": s.get("genres") or [],
             })
         return [s for s in out if s["id"]]
 
@@ -81,18 +84,30 @@ class TVDB:
             "year": int(first[:4]) if first[:4].isdigit() else None,
             "genres": [g["name"] for g in data.get("genres", [])],
             "rating": data.get("score"),
+            "original_language": data.get("originalLanguage"),
+            "origin_country": [data["originalCountry"]] if data.get("originalCountry") else [],
         }
 
     async def episode(self, client, series_id: int, season: int, episode: int) -> dict | None:
-        params = {"season": season, "episodeNumber": episode, "page": 0}
+        return await self._lookup(client, series_id, "default",
+                                  {"season": season, "episodeNumber": episode, "page": 0})
+
+    async def episode_by_absolute(self, client, series_id: int, absolute: int) -> dict | None:
+        """Episode über die absolute Nummer – bei Anime die übliche Zählweise."""
+        return await self._lookup(client, series_id, "absolute",
+                                  {"episodeNumber": absolute, "page": 0})
+
+    async def _lookup(self, client, series_id: int, order: str, params: dict) -> dict | None:
         try:
-            data = await self._get(client, f"/series/{series_id}/episodes/default", params)
+            data = await self._get(client, f"/series/{series_id}/episodes/{order}", params)
         except httpx.HTTPStatusError:
             return None
         entries = (data.get("data") or {}).get("episodes") or []
         if not entries:
             return None
         e = entries[0]
+        season = e.get("seasonNumber")
+        episode = e.get("number")
         title = e.get("name")
         # Übersetzten Episodentitel nachladen, wenn vorhanden.
         try:
@@ -105,6 +120,6 @@ class TVDB:
             "title": title,
             "air_date": e.get("aired"),
             "absolute": e.get("absoluteNumber"),
-            "season": e.get("seasonNumber", season),
-            "episode": e.get("number", episode),
+            "season": season,
+            "episode": episode,
         }

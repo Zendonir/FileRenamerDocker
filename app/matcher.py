@@ -12,8 +12,46 @@ from .providers import TMDB, TVDB
 log = logs.get("matcher")
 
 
+TMDB_ANIMATION_GENRE = 16
+ANIME_GENRE_NAMES = {"anime", "animation"}
+
+
 def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def detect_anime(path: str, guess: dict, candidate: dict | None, settings: dict) -> bool:
+    """Heuristik: Anime oder normale Serie?
+
+    Ausschlaggebend ist der Pfad (eindeutiger Nutzerwille), danach typische
+    Fansub-Merkmale und schließlich japanische Herkunft plus Animations-Genre.
+    """
+    if settings.get("anime_detection") == "off":
+        return False
+
+    haystack = path.lower()
+    for keyword in settings.get("anime_keywords", []):
+        if keyword.lower() in haystack:
+            return True
+
+    if candidate:
+        language = (candidate.get("original_language") or "").lower()
+        countries = {c.upper() for c in candidate.get("origin_country") or []}
+        genres = {str(g).lower() for g in candidate.get("genres") or []}
+        genre_ids = set(candidate.get("genre_ids") or [])
+        japanese = language in {"ja", "jpn"} or bool(countries & {"JP", "JPN"})
+        animated = bool(genres & ANIME_GENRE_NAMES) or TMDB_ANIMATION_GENRE in genre_ids
+        if japanese and (animated or "anime" in genres):
+            return True
+
+    return False
+
+
+def category_of(path: str, guess: dict, candidate: dict | None, settings: dict) -> str:
+    """Liefert 'movie', 'series' oder 'anime'."""
+    if guess.get("type") != "episode":
+        return "movie"
+    return "anime" if detect_anime(path, guess, candidate, settings) else "series"
 
 
 def confidence(guess_title: str, guess_year: int | None, candidate: dict) -> float:
@@ -54,32 +92,63 @@ class Matcher:
             self._tvdb = TVDB(self.settings.get("tvdb_api_key", ""), self.language)
         return self._tvdb
 
-    def series_provider(self):
-        return self.tvdb if self.settings.get("series_provider") == "tvdb" else self.tmdb
+    def provider_for(self, category: str) -> str:
+        """Welche Datenbank ist für diese Kategorie zuständig?"""
+        if category == "movie":
+            return "tmdb"
+        key = "anime_provider" if category == "anime" else "series_provider"
+        return self.settings.get(key, "tvdb")
 
     async def search(self, client, kind: str, query: str, year: int | None,
                      provider: str | None = None) -> list[dict]:
-        if kind == "movie":
+        category = "movie" if kind == "movie" else ("anime" if kind == "anime" else "series")
+        if category == "movie":
             return await self.tmdb.search_movie(client, query, year)
-        source = self.tvdb if (provider or self.settings.get("series_provider")) == "tvdb" else self.tmdb
+        name = provider or self.provider_for(category)
+        source = self.tvdb if name == "tvdb" else self.tmdb
         return await source.search_series(client, query, year)
 
-    async def _episode_info(self, client, provider: str, series_id: int, season: int, ep: int):
-        key = (provider, series_id, season, ep)
+    async def _episode_info(self, client, provider: str, series_id: int,
+                            season: int | None, ep: int, absolute: bool = False):
+        key = (provider, series_id, season, ep, absolute)
         if key in self._episode_cache:
             return self._episode_cache[key]
         source = self.tvdb if provider == "tvdb" else self.tmdb
         try:
-            info = await source.episode(client, series_id, season, ep)
+            if absolute and provider == "tvdb":
+                info = await source.episode_by_absolute(client, series_id, ep)
+            elif season is None:
+                # Ohne Staffelangabe bleibt nur Staffel 1 als Annahme.
+                info = await source.episode(client, series_id, 1, ep)
+            else:
+                info = await source.episode(client, series_id, season, ep)
         except (httpx.HTTPError, RuntimeError):
             info = None
         self._episode_cache[key] = info
         return info
 
+    async def episodes_for(self, client, category: str, provider: str, series_id: int,
+                           guess: dict) -> list[dict]:
+        """Lädt die Episodendaten passend zur Zählweise der Kategorie."""
+        numbers = guess.get("episodes") or []
+        if not numbers:
+            return []
+        # Anime ohne Staffelangabe werden absolut gezählt.
+        absolute = (category == "anime" and self.settings.get("anime_absolute", True)
+                    and guess.get("season") is None)
+        found = [await self._episode_info(client, provider, series_id,
+                                          guess.get("season"), ep, absolute)
+                 for ep in numbers]
+        if absolute and not any(found):
+            # Kein Treffer über die absolute Liste: normale Zählung als Rückfall.
+            found = [await self._episode_info(client, provider, series_id, 1, ep)
+                     for ep in numbers]
+        return found
+
     def destination(self, guess: dict, match: dict, src: Path,
-                    episodes: list[dict] | None = None) -> str:
-        """Berechnet den absoluten Zielpfad für eine Datei."""
-        is_series = guess["type"] == "episode"
+                    episodes: list[dict] | None = None, category: str = "movie") -> str:
+        """Berechnet den absoluten Zielpfad anhand des Schemas der Kategorie."""
+        is_series = category in ("series", "anime")
         info = {
             "name": match.get("title"),
             "year": match.get("year"),
@@ -104,11 +173,21 @@ class Matcher:
                 info["episode_title"] = " & ".join(titles) if titles else guess.get("episode_title")
                 info["absolute"] = episodes[0].get("absolute") if episodes[0] else None
                 info["air_date"] = episodes[0].get("air_date") if episodes[0] else None
+                # Bei absoluter Zählung liefert die Datenbank Staffel und Episode nach.
+                if guess.get("season") is None and episodes[0]:
+                    info["season"] = episodes[0].get("season")
+                    resolved = [e.get("episode") for e in episodes if e and e.get("episode")]
+                    if resolved:
+                        info["episodes"] = resolved
+                        info["episode"] = resolved[0]
             else:
                 info["episode_title"] = guess.get("episode_title")
+            if info.get("absolute") is None and guess.get("season") is None:
+                # Ohne Datenbanktreffer bleibt die Nummer aus dem Dateinamen.
+                info["absolute"] = (guess.get("episodes") or [None])[0]
 
-        template = self.settings["series_format"] if is_series else self.settings["movie_format"]
-        target = self.settings["series_target"] if is_series else self.settings["movie_target"]
+        template = self.settings[f"{category}_format"]
+        target = self.settings[f"{category}_target"]
         relative = naming.format_path(template, info)
         suffix = src.suffix.lower()
         if guess.get("subtitle_language"):
@@ -130,6 +209,7 @@ class Matcher:
             "confidence": 0.0,
             "dest": None,
             "status": "unmatched",
+            "category": "movie",
             "error": None,
         }
         if not guess.get("title"):
@@ -137,8 +217,12 @@ class Matcher:
             log.warning("Nicht analysierbar: %s", src)
             return result
 
+        # Erste Einschätzung noch ohne Datenbank – sie bestimmt, welche Quelle gefragt wird.
+        category = category_of(str(src), guess, None, self.settings)
+        result["category"] = category
+
         try:
-            candidates = await self.search(client, guess["type"], guess["title"], guess.get("year"))
+            candidates = await self.search(client, category, guess["title"], guess.get("year"))
         except (httpx.HTTPError, RuntimeError) as exc:
             result["error"] = str(exc)
             log.error("Datenbankabfrage fehlgeschlagen für '%s': %s", guess["title"], exc)
@@ -158,15 +242,17 @@ class Matcher:
         result["match"] = best
         result["confidence"] = best["confidence"]
 
+        # Zweite Einschätzung: jetzt mit Sprache und Genre aus der Datenbank.
+        if category != "movie":
+            category = category_of(str(src), guess, best, self.settings)
+            result["category"] = category
+
         episodes = None
-        if guess["type"] == "episode" and guess.get("season") is not None:
-            episodes = [
-                await self._episode_info(client, best["provider"], best["id"], guess["season"], ep)
-                for ep in (guess.get("episodes") or [])
-            ]
+        if category != "movie":
+            episodes = await self.episodes_for(client, category, best["provider"], best["id"], guess)
 
         try:
-            result["dest"] = self.destination(guess, best, src, episodes)
+            result["dest"] = self.destination(guess, best, src, episodes, category)
         except ValueError as exc:
             result["error"] = str(exc)
             log.error("Zielpfad für %s nicht berechenbar: %s", src.name, exc)
@@ -174,7 +260,7 @@ class Matcher:
 
         threshold = float(self.settings.get("min_confidence", 0.7))
         result["status"] = "matched" if best["confidence"] >= threshold else "review"
-        log.info("%s: '%s' -> %s (%s, %d %%)", src.name, guess["title"],
+        log.info("%s [%s]: '%s' -> %s (%s, %d %%)", src.name, category, guess["title"],
                  best["title"], best["provider"].upper(), round(best["confidence"] * 100))
         if result["status"] == "review":
             log.warning("Unsicherer Treffer, bitte prüfen: %s", src.name)
