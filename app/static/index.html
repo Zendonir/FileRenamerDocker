@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Media Renamer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Media Renamer</h1>
+  <nav>
+    <button class="tab active" data-tab="rename">Umbenennen</button>
+    <button class="tab" data-tab="settings">Einstellungen</button>
+    <button class="tab" data-tab="history">Verlauf</button>
+  </nav>
+</header>
+
+<main>
+  <section id="tab-rename" class="tab-panel active">
+    <div class="toolbar">
+      <button id="btn-scan" class="primary">Scannen &amp; Zuordnen</button>
+      <select id="action-select" title="Aktion beim Übernehmen">
+        <option value="move">Verschieben</option>
+        <option value="copy">Kopieren</option>
+        <option value="hardlink">Hardlink</option>
+        <option value="symlink">Symlink</option>
+        <option value="test">Nur testen</option>
+      </select>
+      <label><input type="checkbox" id="include-subs" checked> Untertitel einbeziehen</label>
+      <span class="spacer"></span>
+      <label><input type="checkbox" id="select-all"> Alle</label>
+      <button id="btn-apply" class="primary" disabled>Übernehmen</button>
+    </div>
+    <div id="progress" class="progress hidden"><div id="progress-bar"></div><span id="progress-text"></span></div>
+    <div id="filters" class="filters hidden">
+      <button class="chip active" data-filter="all">Alle</button>
+      <button class="chip" data-filter="matched">Erkannt</button>
+      <button class="chip" data-filter="review">Prüfen</button>
+      <button class="chip" data-filter="unmatched">Ohne Treffer</button>
+    </div>
+    <div id="results"></div>
+    <p id="empty-hint" class="hint">Noch kein Scan durchgeführt. Quellordner und API-Keys findest du unter „Einstellungen“.</p>
+  </section>
+
+  <section id="tab-settings" class="tab-panel">
+    <form id="settings-form">
+      <fieldset>
+        <legend>Datenbanken</legend>
+        <label>TMDB API-Key (v3-Key oder v4-Token)
+          <input name="tmdb_api_key" type="password" autocomplete="off"></label>
+        <label>TVDB API-Key (v4)
+          <input name="tvdb_api_key" type="password" autocomplete="off"></label>
+        <label>Sprache
+          <select name="language">
+            <option value="de-DE">Deutsch</option>
+            <option value="en-US">Englisch</option>
+            <option value="fr-FR">Französisch</option>
+            <option value="es-ES">Spanisch</option>
+            <option value="it-IT">Italienisch</option>
+            <option value="nl-NL">Niederländisch</option>
+          </select></label>
+        <label>Datenquelle für Serien
+          <select name="series_provider">
+            <option value="tvdb">TheTVDB</option>
+            <option value="tmdb">TMDB</option>
+          </select></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Ordner</legend>
+        <label>Quellordner (einer pro Zeile)
+          <textarea name="source_dirs" rows="3"></textarea></label>
+        <label>Zielordner Filme
+          <span class="path-row"><input name="movie_target"><button type="button" class="browse" data-target="movie_target">…</button></span></label>
+        <label>Zielordner Serien
+          <span class="path-row"><input name="series_target"><button type="button" class="browse" data-target="series_target">…</button></span></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Namensschema</legend>
+        <label>Filme <input name="movie_format" data-preview="movie"></label>
+        <p class="preview" id="preview-movie"></p>
+        <label>Serien <input name="series_format" data-preview="series"></label>
+        <p class="preview" id="preview-series"></p>
+        <details>
+          <summary>Verfügbare Platzhalter</summary>
+          <ul class="tokens">
+            <li><code>{n}</code> Titel</li><li><code>{y}</code> Jahr</li>
+            <li><code>{s}</code> Staffel</li><li><code>{e}</code> Episode</li>
+            <li><code>{t}</code> Episodentitel</li><li><code>{s00e00}</code> S01E02</li>
+            <li><code>{sxe}</code> 1x02</li><li><code>{abs}</code> Absolute Nummer</li>
+            <li><code>{airdate}</code> Erstausstrahlung</li><li><code>{vf}</code> Auflösung</li>
+            <li><code>{vc}</code> Video-Codec</li><li><code>{ac}</code> Audio-Codec</li>
+            <li><code>{source}</code> Quelle</li><li><code>{group}</code> Release-Gruppe</li>
+            <li><code>{pi}</code> Teil/CD</li><li><code>{collection}</code> Filmreihe</li>
+            <li><code>{imdb}</code> IMDb-ID</li><li><code>{lang}</code> Sprachen</li>
+          </ul>
+          <p><code>{s.pad(2)}</code> füllt mit Nullen auf, <code>{'CD '+pi}</code> gibt den Text nur aus,
+             wenn die Variable gefüllt ist, <code>{t|n}</code> nutzt den ersten gefüllten Wert.</p>
+        </details>
+      </fieldset>
+
+      <fieldset>
+        <legend>Verhalten</legend>
+        <label>Standardaktion
+          <select name="action">
+            <option value="move">Verschieben</option>
+            <option value="copy">Kopieren</option>
+            <option value="hardlink">Hardlink</option>
+            <option value="symlink">Symlink</option>
+            <option value="test">Nur testen</option>
+          </select></label>
+        <label>Mindest-Trefferqualität (0–1) <input name="min_confidence" type="number" step="0.05" min="0" max="1"></label>
+        <label>Mindestgröße in MB <input name="min_size_mb" type="number" min="0"></label>
+        <label>Dateiendungen (Komma-getrennt) <input name="extensions"></label>
+        <label>Untertitel-Endungen (Komma-getrennt) <input name="subtitle_extensions"></label>
+        <label class="inline"><input name="clean_empty_dirs" type="checkbox"> Leere Quellordner löschen</label>
+        <label class="inline"><input name="overwrite" type="checkbox"> Vorhandene Zieldateien überschreiben</label>
+      </fieldset>
+
+      <button type="submit" class="primary">Speichern</button>
+      <span id="settings-status"></span>
+    </form>
+  </section>
+
+  <section id="tab-history" class="tab-panel">
+    <div class="toolbar">
+      <button id="btn-undo" disabled>Auswahl rückgängig machen</button>
+      <label><input type="checkbox" id="history-all"> Alle</label>
+    </div>
+    <div id="history-list"></div>
+  </section>
+</main>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <header><h2 id="modal-title"></h2><button id="modal-close">✕</button></header>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

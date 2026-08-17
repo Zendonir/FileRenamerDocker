@@ -1,0 +1,9 @@
+.git
+.github
+config/
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.md
+tests/

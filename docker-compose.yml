@@ -1,0 +1,21 @@
+services:
+  media-renamer:
+    build: .
+    # Alternativ nach dem Build: image: media-renamer:latest
+    container_name: media-renamer
+    ports:
+      - "8080:8080"
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: Europe/Berlin
+      # Keys können auch im Webinterface hinterlegt werden.
+      TMDB_API_KEY: "${TMDB_API_KEY:-}"
+      TVDB_API_KEY: "${TVDB_API_KEY:-}"
+      LANGUAGE: de-DE
+    volumes:
+      - ./config:/config
+      # Wichtig: Quelle und Ziel unter EINEM Mount, damit Verschieben/Hardlinks
+      # ohne langsames Kopieren über Volume-Grenzen funktionieren.
+      - /pfad/zu/deinen/medien:/data
+    restart: unless-stopped
