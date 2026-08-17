@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anmelden – Media Renamer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-page">
+  <form id="login-form" class="login-box">
+    <h1>Media Renamer</h1>
+    <label>Benutzer <input name="user" value="admin" autocomplete="username"></label>
+    <label>Passwort <input name="password" type="password" autocomplete="current-password" autofocus></label>
+    <button type="submit" class="primary">Anmelden</button>
+    <p id="login-error" class="preview"></p>
+  </form>
+<script>
+document.getElementById('login-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const error = document.getElementById('login-error');
+  error.textContent = '';
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user: form.user.value, password: form.password.value }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || 'Anmeldung fehlgeschlagen.');
+    }
+    window.location.href = '/';
+  } catch (err) {
+    error.style.color = 'var(--err)';
+    error.textContent = err.message;
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "RUF"]
+ignore = [
+  "E501",              # Zeilenlänge prüft bereits line-length
+  "RUF001", "RUF002", "RUF003",  # deutsche Typografie (Gedankenstrich, Anführungszeichen)
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["E402"]  # sys.path-Anpassung muss vor den Imports stehen

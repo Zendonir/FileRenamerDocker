@@ -19,13 +19,37 @@ _TOKEN = re.compile(r"\{([^{}]*)\}")
 _PAD = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.pad\((\d+)\)$")
 
 
-def sanitize(name: str, replacement: str = "") -> str:
+TRANSLITERATE = {
+    "ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss",
+    "à": "a", "á": "a", "â": "a", "ã": "a", "å": "a", "æ": "ae",
+    "è": "e", "é": "e", "ê": "e", "ë": "e", "ç": "c", "ñ": "n",
+    "ì": "i", "í": "i", "î": "i", "ï": "i", "ø": "o", "ò": "o", "ó": "o", "ô": "o",
+    "ù": "u", "ú": "u", "û": "u", "ý": "y", "š": "s", "ž": "z", "–": "-", "—": "-",
+    "’": "'", "‘": "'", "“": '"', "”": '"', "…": "...",
+}
+
+
+def to_ascii(text: str) -> str:
+    """Schreibt Umlaute und Sonderzeichen aus – für SMB-Freigaben an alte Clients."""
+    out = "".join(TRANSLITERATE.get(char, char) for char in text)
+    return out.encode("ascii", "ignore").decode("ascii")
+
+
+def sanitize(name: str, replacement: str = "", ascii_only: bool = False,
+             windows_safe: bool = True) -> str:
     """Entfernt für Dateisysteme unzulässige Zeichen aus einem Pfadsegment."""
     cleaned = re.sub(INVALID, replacement, name)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip().strip(".")
-    if cleaned.upper() in RESERVED:
+    if ascii_only:
+        cleaned = to_ascii(cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if windows_safe:
+        # Windows und SMB stolpern über Punkte und Leerzeichen am Ende.
+        cleaned = cleaned.rstrip(". ")
+    else:
+        cleaned = cleaned.strip(".")
+    if cleaned.upper() in RESERVED or cleaned.split(".")[0].upper() in RESERVED:
         cleaned = f"_{cleaned}"
-    return cleaned[:200]
+    return cleaned[:200].strip()
 
 
 def _resolve(name: str, ctx: dict):
@@ -113,7 +137,8 @@ def build_context(info: dict) -> dict:
     return {k: v for k, v in ctx.items() if v is not None and v != ""}
 
 
-def format_path(template: str, info: dict) -> str:
+def format_path(template: str, info: dict, ascii_only: bool = False,
+                windows_safe: bool = True) -> str:
     """Rendert ein Template zu einem relativen Pfad (ohne Dateiendung)."""
     ctx = build_context(info)
     # Nur das Template selbst darf Ordnergrenzen setzen — Werte aus den
@@ -122,7 +147,8 @@ def format_path(template: str, info: dict) -> str:
         lambda m: _eval_expr(m.group(1), ctx).replace("/", "").replace("\\", ""),
         template,
     )
-    segments = [sanitize(seg) for seg in rendered.split("/")]
+    segments = [sanitize(seg, ascii_only=ascii_only, windows_safe=windows_safe)
+                for seg in rendered.split("/")]
     segments = [seg for seg in segments if seg]
     if not segments:
         raise ValueError("Format ergibt einen leeren Pfad.")

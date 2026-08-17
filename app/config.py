@@ -36,6 +36,37 @@ DEFAULTS = {
     "use_embedded_metadata": True,   # Container-Tags als letzte Quelle und Lückenfüller
     "clean_empty_dirs": True,
     "overwrite": False,
+
+    # Abgleich mit der bestehenden Bibliothek
+    "check_library": True,
+    "duplicate_action": "skip",      # skip | replace_if_better | always
+
+    # Automatikbetrieb
+    "auto_enabled": False,
+    "auto_interval_minutes": 60,
+    "auto_min_confidence": 0.9,      # nur sehr sichere Treffer laufen unbeaufsichtigt
+    "auto_categories": ["movie", "series", "anime"],
+    "auto_quiet_seconds": 120,       # Datei muss so lange unverändert sein
+
+    # Benachrichtigung der Medienserver nach getaner Arbeit
+    "webhook_urls": [],
+    "plex_url": "",
+    "plex_token": "",
+    "jellyfin_url": "",
+    "jellyfin_token": "",
+
+    # Begleitdateien
+    "write_nfo": False,
+    "download_artwork": False,
+
+    # Dateinamen
+    "ascii_only": False,             # Umlaute umschreiben (ae, oe, ue, ss)
+    "windows_safe": True,            # Punkte/Leerzeichen am Ende vermeiden
+
+    # Zugang
+    "auth_enabled": False,
+    "auth_user": "admin",
+    "auth_password_hash": "",
 }
 
 _lock = threading.Lock()
@@ -68,6 +99,11 @@ def save(patch: dict) -> dict:
                 data[key] = value
         _ensure_dir()
         CONFIG_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), "utf-8")
+        # Die Datei enthält API-Keys und ggf. einen Passwort-Hash.
+        try:
+            CONFIG_FILE.chmod(0o600)
+        except OSError:
+            pass
         return data
 
 

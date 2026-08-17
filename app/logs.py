@@ -2,7 +2,6 @@
 import logging
 import logging.handlers
 from collections import deque
-from pathlib import Path
 
 from .config import CONFIG_DIR
 

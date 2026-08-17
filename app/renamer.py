@@ -76,8 +76,17 @@ def cleanup_dirs(paths: set[Path], stop_at: set[Path]) -> list[str]:
     return removed
 
 
+def _duplicate_decision(existing: dict, mode: str) -> str:
+    """'skip', 'replace' oder 'keep_both' – abhängig von Einstellung und Qualität."""
+    if mode == "always":
+        return "keep_both"
+    if mode == "replace_if_better":
+        return "replace" if existing.get("verdict") == "better" else "skip"
+    return "skip"
+
+
 def apply(items: list[dict], action: str, overwrite: bool, clean_empty: bool,
-          roots: list[str]) -> dict:
+          roots: list[str], duplicate_action: str = "skip") -> dict:
     """Verarbeitet eine Liste von {src, dest}-Paaren."""
     results = []
     history = []
@@ -87,6 +96,25 @@ def apply(items: list[dict], action: str, overwrite: bool, clean_empty: bool,
     for item in items:
         src = Path(item["src"])
         dest = Path(item["dest"])
+
+        # Liegt am Ziel schon eine Fassung? Dann entscheidet die Einstellung.
+        existing = item.get("existing")
+        if existing and action != "test":
+            decision = _duplicate_decision(existing, duplicate_action)
+            if decision == "skip":
+                results.append({"src": str(src), "dest": str(dest), "ok": False,
+                                "skipped": True,
+                                "error": f"Bereits vorhanden ({existing['quality']})."})
+                log.info("Übersprungen, liegt schon in der Bibliothek: %s", src.name)
+                continue
+            if decision == "replace":
+                old = Path(existing["path"])
+                try:
+                    old.unlink()
+                    log.warning("Schlechtere Fassung ersetzt und gelöscht: %s", old)
+                except OSError as exc:
+                    log.error("Alte Fassung nicht löschbar: %s (%s)", old, exc)
+
         try:
             final = transfer(src, dest, action, overwrite)
             source_dirs.add(src.parent)
@@ -118,16 +146,18 @@ def apply(items: list[dict], action: str, overwrite: bool, clean_empty: bool,
     return {
         "results": results,
         "ok": sum(1 for r in results if r["ok"]),
-        "failed": sum(1 for r in results if not r["ok"]),
+        "failed": sum(1 for r in results if not r["ok"] and not r.get("skipped")),
+        "skipped": sum(1 for r in results if r.get("skipped")),
         "removed_dirs": removed,
     }
 
 
-def undo(entry_times: list[float]) -> dict:
+def undo(entry_times: list[float], targets: list[str] | None = None) -> dict:
     """Macht zuvor ausgeführte Operationen rückgängig (Move/Copy/Link)."""
     history = config.load_history()
     wanted = set(entry_times)
     results = []
+    emptied: set[Path] = set()
 
     for entry in history:
         if entry["time"] not in wanted or entry.get("undone"):
@@ -144,11 +174,18 @@ def undo(entry_times: list[float]) -> dict:
             else:
                 dest.unlink()
             entry["undone"] = True
+            emptied.add(dest.parent)
             results.append({"dest": str(dest), "ok": True, "error": None})
             log.warning("Rückgängig gemacht (%s): %s -> %s", entry["action"], dest, src)
         except (ActionError, OSError) as exc:
             results.append({"dest": str(dest), "ok": False, "error": str(exc)})
             log.error("Rückgängig fehlgeschlagen: %s (%s)", dest, exc)
 
+    # Der beim Verschieben angelegte Zielordner bleibt sonst leer zurück.
+    removed = cleanup_dirs(emptied, {Path(t) for t in (targets or [])}) if emptied else []
+    for path in removed:
+        log.info("Leeren Zielordner entfernt: %s", path)
+
     config.replace_history(history)
-    return {"results": results, "ok": sum(1 for r in results if r["ok"])}
+    return {"results": results, "ok": sum(1 for r in results if r["ok"]),
+            "removed_dirs": removed}

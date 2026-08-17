@@ -1,5 +1,9 @@
 """TMDB-Anbindung (Filme + Serien)."""
+import json
+
 import httpx
+
+from . import http
 
 BASE = "https://api.themoviedb.org/3"
 
@@ -29,11 +33,18 @@ class TMDB:
         return params
 
     async def _get(self, client: httpx.AsyncClient, path: str, params: dict | None = None) -> dict:
-        r = await client.get(f"{BASE}{path}", params=self._params(params), headers=self._headers(), timeout=30)
-        if r.status_code == 401:
-            raise TMDBError("TMDB: API-Key ungültig.")
-        r.raise_for_status()
-        return r.json()
+        full = self._params(params)
+        # Der Key gehört nicht in den Cache-Schlüssel, die Sprache schon.
+        key = "tmdb:" + path + ":" + json.dumps(
+            {k: v for k, v in full.items() if k != "api_key"}, sort_keys=True)
+        try:
+            return await http.cached_json(
+                client, key, f"{BASE}{path}",
+                params=full, headers=self._headers(), timeout=30)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
+                raise TMDBError("TMDB: API-Key ungültig.") from exc
+            raise
 
     async def search_movie(self, client, query: str, year: int | None = None) -> list[dict]:
         params = {"query": query, "include_adult": "false"}

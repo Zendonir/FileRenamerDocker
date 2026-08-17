@@ -99,6 +99,19 @@ legend { padding: 0 8px; color: var(--accent); font-weight: 600; }
 .badge.cat-movie { color: #8ab4ff; }
 .badge.cat-series { color: #6fd08c; }
 .badge.cat-anime { color: #ff9ecd; }
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 28px; width: min(360px, 92vw); }
+.login-box h1 { font-size: 18px; margin: 0 0 20px; }
+.login-box button { width: 100%; margin-top: 6px; }
+.badge.exists { color: var(--warn); background: #3a2c10; }
+.badge.exists.better { color: var(--ok); background: #10301a; }
+.auto-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 14px; margin-bottom: 14px; font-size: 13px; }
+.auto-bar .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.auto-bar .dot.on { background: var(--ok); }
+.item.focused { outline: 2px solid var(--accent); outline-offset: 2px; }
 .badge.src-folder { color: #ffd591; background: #3a2c10; }
 .badge.src-meta { color: #b9a6ff; background: #2a2440; }
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex;

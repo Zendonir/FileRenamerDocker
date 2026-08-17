@@ -5,8 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import metadata, parser  # noqa: E402
-
+from app import metadata, parser
 
 # --- Hilfsfunktionen zum Bauen echter Container-Bytes ------------------------
 

@@ -1,7 +1,11 @@
 """TheTVDB v4 Anbindung (Serien)."""
+import json
 import time
 
 import httpx
+
+from .. import cache
+from . import http
 
 BASE = "https://api4.thetvdb.com/v4"
 
@@ -24,7 +28,8 @@ class TVDB:
     async def _auth(self, client: httpx.AsyncClient) -> str:
         if self._token and time.time() < self._token_exp:
             return self._token
-        r = await client.post(f"{BASE}/login", json={"apikey": self.api_key}, timeout=30)
+        r = await http.request(client, "POST", f"{BASE}/login",
+                               json={"apikey": self.api_key}, timeout=30)
         if r.status_code == 401:
             raise TVDBError("TVDB: API-Key ungültig.")
         r.raise_for_status()
@@ -33,11 +38,16 @@ class TVDB:
         return self._token
 
     async def _get(self, client: httpx.AsyncClient, path: str, params: dict | None = None) -> dict:
+        key = f"tvdb:{self.language}:{path}:" + json.dumps(params or {}, sort_keys=True)
+        # Vorab prüfen, damit ein Treffer nicht erst einen Login auslöst.
+        hit = cache.get(key)
+        if hit is not None:
+            return hit
         token = await self._auth(client)
-        r = await client.get(f"{BASE}{path}", params=params,
-                             headers={"Authorization": f"Bearer {token}"}, timeout=30)
-        r.raise_for_status()
-        return r.json()
+        data = await http.cached_json(
+            client, key, f"{BASE}{path}", params=params,
+            headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        return data
 
     def _translate(self, item: dict) -> str:
         trans = item.get("translations") or {}

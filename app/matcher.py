@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 
-from . import logs, naming, parser
+from . import library, logs, naming, parser
 from .providers import TMDB, TVDB
 
 log = logs.get("matcher")
@@ -45,6 +45,44 @@ def detect_anime(path: str, guess: dict, candidate: dict | None, settings: dict)
             return True
 
     return False
+
+
+def _common_prefix(a: str, b: str) -> int:
+    length = 0
+    for x, y in zip(a, b, strict=False):   # kürzere Zeichenkette begrenzt
+        if x != y:
+            break
+        length += 1
+    return length
+
+
+def _subtitle_score(sub_stem: str, sub_guess: dict, video_stem: str, video_guess: dict):
+    """Wie gut passt ein Untertitel zu einer Videodatei? None heißt: gar nicht.
+
+    Dateinamen weichen fast immer ab ("...German.de.srt" gegen
+    "...German.1080p.mkv"), deshalb zählt zuerst die erkannte Episode.
+    """
+    same_episode = bool(
+        sub_guess.get("episodes")
+        and sub_guess.get("episodes") == video_guess.get("episodes")
+        and sub_guess.get("season") == video_guess.get("season")
+    )
+    same_title = bool(
+        sub_guess.get("title") and video_guess.get("title")
+        and _normalize(sub_guess["title"]) == _normalize(video_guess["title"])
+    )
+    prefix = _common_prefix(sub_stem, video_stem)
+
+    if same_episode and same_title:
+        return (3, prefix)
+    if same_episode or (same_title and not video_guess.get("episodes")):
+        return (2, prefix)
+    if sub_stem == video_stem or sub_stem.startswith(video_stem):
+        return (1, prefix)
+    # Reine Namensähnlichkeit reicht nur, wenn sie deutlich ist.
+    if prefix >= max(6, len(video_stem) // 2):
+        return (0, prefix)
+    return None
 
 
 def category_of(path: str, guess: dict, candidate: dict | None, settings: dict) -> str:
@@ -188,7 +226,11 @@ class Matcher:
 
         template = self.settings[f"{category}_format"]
         target = self.settings[f"{category}_target"]
-        relative = naming.format_path(template, info)
+        relative = naming.format_path(
+            template, info,
+            ascii_only=self.settings.get("ascii_only", False),
+            windows_safe=self.settings.get("windows_safe", True),
+        )
         suffix = src.suffix.lower()
         if guess.get("subtitle_language"):
             suffix = f".{guess['subtitle_language']}{suffix}"
@@ -274,12 +316,125 @@ class Matcher:
                  best["title"], best["provider"].upper(), round(best["confidence"] * 100))
         if result["status"] == "review":
             log.warning("Unsicherer Treffer, bitte prüfen: %s", src.name)
+        self.check_library(result)
         return result
 
-    async def process(self, entries: list[dict], concurrency: int = 5) -> list[dict]:
+    # --- Abgleich mit der bestehenden Bibliothek -----------------------------
+
+    def check_library(self, item: dict) -> None:
+        """Vermerkt, ob am Ziel bereits eine Fassung liegt und wie sie sich vergleicht."""
+        item["existing"] = None
+        if not item.get("dest") or not self.settings.get("check_library", True):
+            return
+        extensions = {e.lower() for e in self.settings.get("extensions", [])}
+        found = library.find_existing(item["dest"], extensions)
+        if not found:
+            return
+
+        current = found[0]
+        existing_guess = parser.parse(str(current), use_folder=False, use_metadata=False)
+        verdict = library.compare(item["guess"], item.get("size") or 0,
+                                  item["src"], current, existing_guess)
+        item["existing"] = {
+            "path": str(current),
+            "verdict": verdict,
+            "quality": library.describe(existing_guess),
+            "new_quality": library.describe(item["guess"]),
+        }
+        if verdict == "better":
+            log.info("%s ist besser als die vorhandene Fassung (%s vs. %s).",
+                     Path(item["src"]).name, item["existing"]["new_quality"],
+                     item["existing"]["quality"])
+        else:
+            log.info("%s liegt bereits in der Bibliothek (%s, vorhanden: %s).",
+                     Path(item["src"]).name, verdict, item["existing"]["quality"])
+
+    # --- Untertitel an ihre Videodatei koppeln ------------------------------
+
+    @staticmethod
+    def attach_subtitles(items: list[dict]) -> None:
+        """Untertitel erben Treffer und Ziel der gleichnamigen Videodatei.
+
+        Das spart nicht nur Abfragen – es verhindert vor allem, dass ein
+        Untertitel bei einer anderen Serie landet als sein Video.
+        """
+        videos = {}
+        for item in items:
+            if item.get("is_subtitle") or not item.get("dest"):
+                continue
+            src = Path(item["src"])
+            videos.setdefault(src.parent, []).append((src.stem.lower(), item))
+
+        for item in items:
+            if not item.get("is_subtitle"):
+                continue
+            src = Path(item["src"])
+            stem = src.stem.lower()
+            best_video, best_score = None, None
+            for video_stem, video in videos.get(src.parent, []):
+                score = _subtitle_score(stem, item.get("guess") or {},
+                                        video_stem, video.get("guess") or {})
+                if score and (best_score is None or score > best_score):
+                    best_video, best_score = video, score
+            if not best_video:
+                continue
+
+            video = best_video
+            language = item["guess"].get("subtitle_language")
+            suffix = f".{language}{src.suffix.lower()}" if language else src.suffix.lower()
+            item["match"] = video["match"]
+            item["category"] = video["category"]
+            item["confidence"] = video["confidence"]
+            item["status"] = video["status"]
+            item["error"] = None
+            item["linked_to"] = video["src"]
+            item["dest"] = str(Path(video["dest"]).with_suffix("")) + suffix
+            log.info("Untertitel %s folgt der Videodatei %s.", src.name, Path(video["src"]).name)
+
+    async def process(self, entries: list[dict], concurrency: int = 5,
+                      on_progress=None, is_cancelled=None) -> list[dict]:
+        """Erst die Videos, dann die Untertitel – die hängen sich meist einfach an."""
         semaphore = asyncio.Semaphore(concurrency)
         async with httpx.AsyncClient() as client:
             async def run(entry):
                 async with semaphore:
-                    return await self.process_file(client, entry)
-            return list(await asyncio.gather(*(run(e) for e in entries)))
+                    if is_cancelled and is_cancelled():
+                        return self.placeholder(entry)
+                    item = await self.process_file(client, entry)
+                    if on_progress:
+                        on_progress(item)
+                    return item
+
+            videos = [e for e in entries if not e.get("is_subtitle")]
+            subtitles = [e for e in entries if e.get("is_subtitle")]
+            items = list(await asyncio.gather(*(run(e) for e in videos)))
+
+            pending = [self.placeholder(e) for e in subtitles]
+            items.extend(pending)
+            self.attach_subtitles(items)
+
+            # Nur Untertitel ohne passendes Video brauchen eine eigene Abfrage.
+            orphans = [e for e in subtitles
+                       if not next(i for i in pending if i["src"] == e["path"]).get("linked_to")]
+            if orphans:
+                resolved = await asyncio.gather(*(run(e) for e in orphans))
+                by_src = {i["src"]: i for i in resolved}
+                items = [by_src.get(i["src"], i) for i in items]
+        return items
+
+    def placeholder(self, entry: dict) -> dict:
+        """Eintrag ohne Datenbankabfrage – für Untertitel und abgebrochene Läufe."""
+        src = Path(entry["path"])
+        is_subtitle = entry.get("is_subtitle", False)
+        return {
+            "src": str(src), "name": src.name, "size": entry.get("size"),
+            "is_subtitle": is_subtitle, "guess": parser.parse(
+                str(src),
+                roots=self.settings.get("source_dirs"),
+                use_folder=self.settings.get("use_folder_names", True),
+                use_metadata=False),
+            "candidates": [], "match": None, "confidence": 0.0, "dest": None,
+            "status": "unmatched", "category": "movie", "title_source": None,
+            "existing": None, "linked_to": None,
+            "error": "Kein zugehöriges Video gefunden." if is_subtitle else "Abgebrochen.",
+        }

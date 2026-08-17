@@ -76,6 +76,7 @@ for (const kind of SCHEMES) {
 
 /* ---------- Einstellungen ---------- */
 const LIST_FIELDS = ['extensions', 'subtitle_extensions', 'anime_keywords'];
+const LINE_FIELDS = ['source_dirs', 'webhook_urls'];
 
 async function loadSettings() {
   const s = await api('/api/settings');
@@ -84,14 +85,42 @@ async function loadSettings() {
     const field = form.elements[key];
     if (!field) continue;
     if (field.type === 'checkbox') field.checked = !!value;
-    else if (key === 'source_dirs') field.value = (value || []).join('\n');
+    else if (LINE_FIELDS.includes(key)) field.value = (value || []).join('\n');
     else if (LIST_FIELDS.includes(key)) field.value = (value || []).join(', ');
     else field.value = value ?? '';
   }
   $('#action-select').value = s.action || 'move';
   for (const kind of SCHEMES) state.editors[kind].set(s[`${kind}_format`] || '');
+  $('#auth-hint').textContent = s.auth_configured
+    ? 'Ein Passwort ist gesetzt. Feld leer lassen, um es beizubehalten.'
+    : 'Noch kein Passwort gesetzt – ohne Passwort bleibt die Anmeldung aus.';
+  loadCacheInfo();
   return s;
 }
+
+async function loadCacheInfo() {
+  try {
+    const info = await api('/api/cache');
+    const age = info.oldest ? ` · ältester Eintrag ${new Date(info.oldest * 1000).toLocaleDateString('de-DE')}` : '';
+    $('#cache-info').textContent = `${info.entries} zwischengespeicherte Antworten${age}`;
+  } catch { $('#cache-info').textContent = 'Cache nicht lesbar.'; }
+}
+
+$('#btn-cache-clear').addEventListener('click', async () => {
+  const res = await api('/api/cache', { method: 'DELETE' });
+  $('#cache-info').textContent = `${res.cleared} Einträge entfernt.`;
+});
+
+$('#btn-notify-test').addEventListener('click', async () => {
+  $('#notify-status').textContent = 'Teste …';
+  try {
+    const res = await api('/api/notify-test', { method: 'POST' });
+    const keys = Object.keys(res);
+    $('#notify-status').textContent = keys.length
+      ? keys.map((k) => `${k}: ${res[k] ? 'ok' : 'Fehler'}`).join(', ')
+      : 'Nichts konfiguriert.';
+  } catch (err) { $('#notify-status').textContent = `Fehler: ${err.message}`; }
+});
 
 $('#settings-form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -100,7 +129,7 @@ $('#settings-form').addEventListener('submit', async (event) => {
   for (const field of form.elements) {
     if (!field.name) continue;
     if (field.type === 'checkbox') payload[field.name] = field.checked;
-    else if (field.name === 'source_dirs') payload[field.name] = field.value.split('\n').map((v) => v.trim()).filter(Boolean);
+    else if (LINE_FIELDS.includes(field.name)) payload[field.name] = field.value.split('\n').map((v) => v.trim()).filter(Boolean);
     else if (LIST_FIELDS.includes(field.name)) payload[field.name] = field.value.split(',').map((v) => v.trim()).filter(Boolean);
     else if (field.type === 'number') payload[field.name] = Number(field.value);
     else if (field.value !== '***' && field.value !== '') payload[field.name] = field.value;
@@ -185,6 +214,28 @@ $('#btn-scan').addEventListener('click', async () => {
   }
 });
 
+$('#btn-cancel').addEventListener('click', async () => {
+  $('#btn-cancel').disabled = true;
+  try { await api(`/api/scan/${state.jobId}/cancel`, { method: 'POST' }); } catch { /* egal */ }
+});
+
+async function restoreLastScan() {
+  try {
+    const job = await api('/api/scan');
+    if (!job.items || !job.items.length) return;
+    state.jobId = job.id;
+    state.items = job.items;
+    $('#empty-hint').classList.add('hidden');
+    $('#filters').classList.remove('hidden');
+    $('#progress').classList.remove('hidden');
+    $('#progress-bar').style.width = '100%';
+    const when = job.finished ? new Date(job.finished * 1000).toLocaleString('de-DE') : '';
+    $('#progress-text').textContent = `Letzter Scan (${when}): ${job.items.length} Dateien`;
+    if (job.status === 'running') poll(job.id);
+    render();
+  } catch { /* noch kein Scan vorhanden */ }
+}
+
 async function poll(jobId) {
   for (;;) {
     const job = await api(`/api/scan/${jobId}`);
@@ -193,6 +244,13 @@ async function poll(jobId) {
     $('#progress-bar').style.width = `${pct}%`;
     $('#progress-text').textContent = `${job.done} / ${job.total} Dateien`;
     render();
+    $('#btn-cancel').classList.toggle('hidden', job.status !== 'running');
+    if (job.status === 'cancelled') {
+      $('#progress-text').textContent = `Abgebrochen nach ${job.done} Dateien.`;
+      $('#filters').classList.remove('hidden');
+      $('#btn-cancel').disabled = false;
+      return;
+    }
     if (job.status === 'done') {
       $('#progress-text').textContent = `Fertig: ${job.total} Dateien analysiert.`;
       if (!job.total) $('#progress-text').textContent = 'Keine passenden Dateien gefunden.';
@@ -238,9 +296,9 @@ function visibleItems() {
 function render() {
   const container = $('#results');
   container.innerHTML = '';
-  for (const item of visibleItems()) {
+  visibleItems().forEach((item, index) => {
     const el = document.createElement('div');
-    el.className = `item ${item.status}`;
+    el.className = `item ${item.status}${index === focusIndex ? ' focused' : ''}`;
 
     const check = document.createElement('input');
     check.type = 'checkbox';
@@ -269,6 +327,14 @@ function render() {
       `<span class="badge ${badge}">${{ matched: 'Erkannt', review: 'Prüfen', unmatched: 'Ohne Treffer' }[item.status]}</span>`,
       `<span class="badge cat-${item.category || 'movie'}">${cat.icon} ${cat.label}</span>`,
       SOURCE_BADGES[item.title_source] || '',
+      item.existing
+        ? `<span class="badge exists ${item.existing.verdict === 'better' ? 'better' : ''}"
+             title="Im Ziel liegt bereits: ${item.existing.path}">${
+               item.existing.verdict === 'better' ? '⬆ ersetzt schlechtere Fassung'
+               : item.existing.verdict === 'worse' ? '⬇ vorhandene ist besser'
+               : '= schon vorhanden'} (${item.existing.quality})</span>`
+        : '',
+      item.linked_to ? '<span class="badge">🔗 folgt dem Video</span>' : '',
       item.match ? `<span>${item.match.title}${item.match.year ? ` (${item.match.year})` : ''} · ${item.match.provider.toUpperCase()}</span>` : '',
       `<span>Qualität ${Math.round((item.confidence || 0) * 100)} %</span>`,
       item.is_subtitle ? '<span class="badge">Untertitel</span>' : '',
@@ -306,7 +372,7 @@ function render() {
 
     el.append(check, info, actions);
     container.appendChild(el);
-  }
+  });
   $('#btn-apply').disabled = state.selected.size === 0;
 }
 
@@ -343,14 +409,31 @@ function openPicker(item) {
             <div><div class="t">${r.title}${r.year ? ` (${r.year})` : ''}</div>
             <div class="src">${(r.overview || '').slice(0, 140)}</div></div>`;
           row.onclick = async () => {
+            let srcs = null;
+            // Bei Serien anbieten, gleich alle Episoden desselben Titels zu setzen.
+            if (kindSel.value !== 'movie') {
+              try {
+                const g = await api(`/api/group/${state.jobId}?src=${encodeURIComponent(item.src)}`);
+                if (g.srcs.length > 1 &&
+                    confirm(`${g.srcs.length} Dateien wurden als „${g.title}" erkannt.\n\n`
+                          + `OK = alle auf „${r.title}" setzen\nAbbrechen = nur diese eine Datei`)) {
+                  srcs = g.srcs;
+                }
+              } catch { /* Gruppe unbekannt: dann eben nur diese Datei */ }
+            }
             try {
-              const updated = await api('/api/select', {
+              const res = await api('/api/select', {
                 method: 'POST',
-                body: { job_id: state.jobId, src: item.src, provider: r.provider, id: r.id, kind: kindSel.value },
+                body: { job_id: state.jobId, src: item.src, srcs,
+                        provider: r.provider, id: r.id, kind: kindSel.value },
               });
-              Object.assign(item, updated);
+              for (const updated of res.items) {
+                const target = state.items.find((i) => i.src === updated.src);
+                if (target) Object.assign(target, updated);
+              }
               closeModal();
               render();
+              if (res.failed.length) alert(`${res.failed.length} Datei(en) konnten nicht zugewiesen werden.`);
             } catch (err) { alert(err.message); }
           };
           list.appendChild(row);
@@ -377,7 +460,7 @@ $('#btn-apply').addEventListener('click', async () => {
   try {
     const res = await api('/api/apply', { method: 'POST', body: { items, action } });
     const failed = res.results.filter((r) => !r.ok);
-    alert(`${res.ok} erfolgreich, ${res.failed} fehlgeschlagen.` +
+    alert(`${res.ok} erfolgreich, ${res.skipped || 0} übersprungen, ${res.failed} fehlgeschlagen.` +
       (failed.length ? `\n\n${failed.slice(0, 5).map((f) => `${f.src}: ${f.error}`).join('\n')}` : ''));
     if (action !== 'test') {
       const done = new Set(res.results.filter((r) => r.ok).map((r) => r.src));
@@ -500,4 +583,84 @@ $('#log-search').addEventListener('input', () => {
   state.logSearchTimer = setTimeout(loadLog, 300);
 });
 
+/* ---------- Automatikbetrieb ---------- */
+async function loadAuto() {
+  try {
+    const auto = await api('/api/auto');
+    $('#auto-dot').classList.toggle('on', auto.enabled);
+    const last = auto.last_run ? new Date(auto.last_run * 1000).toLocaleTimeString('de-DE') : '–';
+    const next = auto.next_run ? new Date(auto.next_run * 1000).toLocaleTimeString('de-DE') : '–';
+    $('#auto-text').textContent = auto.enabled
+      ? (auto.running
+        ? 'Automatik läuft gerade …'
+        : `Automatik alle ${auto.interval_minutes} min · zuletzt ${last} · nächster Lauf ${next}`)
+      : 'Automatik: aus (unter „Einstellungen“ aktivierbar)';
+  } catch { /* bei Anmeldepflicht schlicht ignorieren */ }
+}
+
+async function runAuto(dryRun) {
+  const label = dryRun ? 'Testlauf' : 'Automatiklauf';
+  if (!dryRun && !confirm('Automatiklauf jetzt starten? Sicher erkannte Dateien werden verschoben.')) return;
+  $('#btn-auto-now').disabled = $('#btn-auto-dry').disabled = true;
+  $('#auto-text').textContent = `${label} läuft …`;
+  try {
+    const r = await api(`/api/auto/run?dry_run=${dryRun}`, { method: 'POST' });
+    alert(`${label} fertig:\n${r.scanned} gefunden, ${r.applied} verarbeitet, `
+      + `${r.skipped} übersprungen, ${r.failed} Fehler, ${r.review} zur Durchsicht, `
+      + `${r.waiting} noch im Schreibvorgang.`);
+  } catch (err) {
+    alert(`Fehler: ${err.message}`);
+  } finally {
+    $('#btn-auto-now').disabled = $('#btn-auto-dry').disabled = false;
+    loadAuto();
+  }
+}
+
+$('#btn-auto-now').addEventListener('click', () => runAuto(false));
+$('#btn-auto-dry').addEventListener('click', () => runAuto(true));
+setInterval(loadAuto, 20000);
+
+/* ---------- Tastaturbedienung ---------- */
+let focusIndex = -1;
+
+function moveFocus(delta) {
+  const items = visibleItems();
+  if (!items.length) return;
+  focusIndex = Math.max(0, Math.min(items.length - 1, focusIndex + delta));
+  render();
+  const el = $$('#results .item')[focusIndex];
+  if (el) el.scrollIntoView({ block: 'nearest' });
+}
+
+document.addEventListener('keydown', (event) => {
+  const tag = event.target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (!$('#tab-rename').classList.contains('active')) return;
+  if (!$('#modal').classList.contains('hidden')) return;
+
+  const items = visibleItems();
+  if (event.key === 'ArrowDown') { event.preventDefault(); moveFocus(1); }
+  else if (event.key === 'ArrowUp') { event.preventDefault(); moveFocus(-1); }
+  else if (event.key === ' ' && items[focusIndex]) {
+    event.preventDefault();
+    const item = items[focusIndex];
+    if (!item.dest) return;
+    if (state.selected.has(item.src)) state.selected.delete(item.src);
+    else state.selected.add(item.src);
+    render();
+  } else if (event.key === 'Enter' && event.ctrlKey) {
+    event.preventDefault();
+    $('#btn-apply').click();
+  } else if (event.key === 'Enter' && items[focusIndex]) {
+    event.preventDefault();
+    openPicker(items[focusIndex]);
+  } else if (event.key === 'a') {
+    event.preventDefault();
+    $('#select-all').checked = !$('#select-all').checked;
+    $('#select-all').dispatchEvent(new Event('change'));
+  }
+});
+
+loadAuto();
 loadSettings();
+restoreLastScan();

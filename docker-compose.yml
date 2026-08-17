@@ -1,21 +1,26 @@
 services:
   media-renamer:
     build: .
-    # Alternativ nach dem Build: image: media-renamer:latest
+    # Fertiges Image statt selbst bauen:
+    # image: ghcr.io/zendonir/filerenamerdocker:latest
     container_name: media-renamer
     ports:
       - "8080:8080"
     environment:
-      PUID: 1000
+      PUID: 1000            # auf TrueNAS: id der App-Nutzergruppe, oft 568 (apps)
       PGID: 1000
       TZ: Europe/Berlin
       # Keys können auch im Webinterface hinterlegt werden.
       TMDB_API_KEY: "${TMDB_API_KEY:-}"
       TVDB_API_KEY: "${TVDB_API_KEY:-}"
       LANGUAGE: de-DE
+      # Setzt beim ersten Start einen Zugangsschutz. Danach im Webinterface änderbar.
+      AUTH_USER: "${AUTH_USER:-admin}"
+      AUTH_PASSWORD: "${AUTH_PASSWORD:-}"
     volumes:
       - ./config:/config
-      # Wichtig: Quelle und Ziel unter EINEM Mount, damit Verschieben/Hardlinks
-      # ohne langsames Kopieren über Volume-Grenzen funktionieren.
+      # Wichtig: Quelle und Ziel unter EINEM Mount, damit Verschieben und Hardlinks
+      # ohne langsames Kopieren über Dataset-Grenzen funktionieren.
+      # TrueNAS-Beispiel: - /mnt/tank/media:/data
       - /pfad/zu/deinen/medien:/data
     restart: unless-stopped

@@ -19,8 +19,16 @@
 
 <main>
   <section id="tab-rename" class="tab-panel active">
+    <div class="auto-bar" id="auto-bar">
+      <span class="dot" id="auto-dot"></span>
+      <span id="auto-text">Automatik: aus</span>
+      <span class="spacer"></span>
+      <button id="btn-auto-dry">Automatik testen</button>
+      <button id="btn-auto-now">Jetzt automatisch verarbeiten</button>
+    </div>
     <div class="toolbar">
       <button id="btn-scan" class="primary">Scannen &amp; Zuordnen</button>
+      <button id="btn-cancel" class="hidden">Abbrechen</button>
       <select id="action-select" title="Aktion beim Übernehmen">
         <option value="move">Verschieben</option>
         <option value="copy">Kopieren</option>
@@ -47,6 +55,8 @@
     </div>
     <div id="results"></div>
     <p id="empty-hint" class="hint">Noch kein Scan durchgeführt. Quellordner und API-Keys findest du unter „Einstellungen“.</p>
+    <p class="hint">Tastatur: <b>↑ ↓</b> bewegen, <b>Leertaste</b> an-/abwählen, <b>Enter</b> Treffer wählen,
+      <b>a</b> alle sichtbaren, <b>Strg+Enter</b> übernehmen.</p>
   </section>
 
   <section id="tab-settings" class="tab-panel">
@@ -151,6 +161,69 @@
           Eingebettete Metadaten der Datei auswerten (MKV, MP4, M4V, MOV)</label>
         <label class="inline"><input name="clean_empty_dirs" type="checkbox"> Leere Quellordner löschen</label>
         <label class="inline"><input name="overwrite" type="checkbox"> Vorhandene Zieldateien überschreiben</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Bibliothek und Duplikate</legend>
+        <label class="inline"><input name="check_library" type="checkbox">
+          Vor dem Verschieben prüfen, ob die Datei schon in der Bibliothek liegt</label>
+        <label>Wenn bereits vorhanden
+          <select name="duplicate_action">
+            <option value="skip">Überspringen</option>
+            <option value="replace_if_better">Ersetzen, wenn die neue Fassung besser ist</option>
+            <option value="always">Trotzdem verschieben (zweite Fassung behalten)</option>
+          </select></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Automatikbetrieb</legend>
+        <label class="inline"><input name="auto_enabled" type="checkbox">
+          Regelmäßig selbst scannen und sichere Treffer verschieben</label>
+        <label>Intervall in Minuten <input name="auto_interval_minutes" type="number" min="5"></label>
+        <label>Nur ab dieser Trefferqualität automatisch verschieben (0–1)
+          <input name="auto_min_confidence" type="number" step="0.05" min="0" max="1"></label>
+        <label>Datei muss so viele Sekunden unverändert sein (laufende Downloads)
+          <input name="auto_quiet_seconds" type="number" min="0"></label>
+        <p class="hint">Alles darunter bleibt liegen und wartet auf deine Durchsicht.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Medienserver benachrichtigen</legend>
+        <label>Plex-Adresse <input name="plex_url" placeholder="http://truenas:32400"></label>
+        <label>Plex-Token <input name="plex_token" type="password" autocomplete="off"></label>
+        <label>Jellyfin-Adresse <input name="jellyfin_url" placeholder="http://truenas:8096"></label>
+        <label>Jellyfin API-Key <input name="jellyfin_token" type="password" autocomplete="off"></label>
+        <label>Zusätzliche Webhooks (einer pro Zeile)
+          <textarea name="webhook_urls" rows="2"></textarea></label>
+        <button type="button" id="btn-notify-test">Verbindung testen</button>
+        <span id="notify-status"></span>
+      </fieldset>
+
+      <fieldset>
+        <legend>Begleitdateien und Zeichensatz</legend>
+        <label class="inline"><input name="write_nfo" type="checkbox">
+          NFO-Datei für Kodi/Jellyfin/Emby daneben ablegen</label>
+        <label class="inline"><input name="ascii_only" type="checkbox">
+          Umlaute umschreiben (ä → ae) – hilfreich bei SMB-Freigaben an alte Clients</label>
+        <label class="inline"><input name="windows_safe" type="checkbox">
+          Windows-sichere Namen (keine Punkte/Leerzeichen am Ende)</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Zugang</legend>
+        <label class="inline"><input name="auth_enabled" type="checkbox">
+          Anmeldung verlangen</label>
+        <label>Benutzername <input name="auth_user" autocomplete="off"></label>
+        <label>Neues Passwort setzen
+          <input name="auth_password" type="password" autocomplete="new-password"
+                 placeholder="leer lassen, um es nicht zu ändern"></label>
+        <p class="hint" id="auth-hint"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Cache</legend>
+        <p class="hint" id="cache-info">…</p>
+        <button type="button" id="btn-cache-clear">Cache leeren</button>
       </fieldset>
 
       <button type="submit" class="primary">Speichern</button>

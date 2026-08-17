@@ -3,8 +3,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import naming  # noqa: E402
-from app.matcher import category_of, detect_anime  # noqa: E402
+from app import naming
+from app.matcher import category_of, detect_anime
 
 SETTINGS = {
     "anime_detection": "auto",

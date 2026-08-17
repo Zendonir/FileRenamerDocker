@@ -23,11 +23,21 @@ Namensschema mit Platzhaltern, Vorschau vor der Ausführung und Verschieben ans 
   und eigenem Namensschema; Anime werden automatisch erkannt und sind manuell umschaltbar
 - **Schema-Editor mit Bubbles** – Bausteine anklicken, per Maus umsortieren, Live-Vorschau
 - **Aktionen**: Verschieben, Kopieren, Hardlink, Symlink oder Trockenlauf („Nur testen“)
-- **Mehrteilige Episoden** (`S01E01E02`), Untertitel-Dateien mit Sprachkürzel, Teil-/CD-Nummern
+- **Mehrteilige Episoden** (`S01E01E02`), Teil-/CD-Nummern
+- **Untertitel folgen ihrem Video** – gleicher Treffer, gleicher Zielname, ohne eigene Abfrage
+- **Sammelzuweisung**: einen Treffer mit einem Klick auf alle Episoden einer Serie anwenden
+- **Bibliotheks-Abgleich** – erkennt vorhandene Fassungen und überspringt oder ersetzt sie
+  je nach Qualität (Auflösung, Quelle, HDR, Größe)
+- **Automatikbetrieb** – scannt in festem Takt und verschiebt sicher Erkanntes selbst;
+  laufende Downloads werden erkannt und bleiben liegen
+- **Plex, Jellyfin und Webhooks** werden nach getaner Arbeit benachrichtigt
+- **NFO-Dateien** für Kodi/Jellyfin/Emby optional daneben ablegen
 - **Verlauf mit Undo** – jede Operation lässt sich einzeln zurücknehmen, mit Suche und Filter
 - **Log im Webinterface** – alle Aktionen und Fehler live mitlesen, filtern und herunterladen
-- **Leere Quellordner** werden nach dem Verschieben optional aufgeräumt
-- **PUID/PGID**, damit verschobene Dateien dem richtigen Benutzer gehören
+- **Zugangsschutz** per Passwort, **Antwort-Cache** für schnelle Wiederholungsläufe
+- **Tastaturbedienung** der Ergebnisliste; Scan abbrechbar und neustartfest gespeichert
+- **Leere Quell- und Zielordner** werden aufgeräumt (auch beim Rückgängigmachen)
+- **PUID/PGID** und Images für **amd64 und arm64**
 
 ## Schnellstart
 
@@ -61,11 +71,56 @@ docker run -d --name media-renamer -p 8080:8080 \
 Keys entweder im Webinterface unter **Einstellungen** eintragen (landen in
 `/config/settings.json`) oder als `TMDB_API_KEY` / `TVDB_API_KEY` per Umgebungsvariable.
 
+## Betrieb auf TrueNAS
+
+Getestete Vorgehensweise für **TrueNAS SCALE** (ab Version 24.10, „Apps → Custom App“
+mit Docker-Compose):
+
+```yaml
+services:
+  media-renamer:
+    image: ghcr.io/zendonir/filerenamerdocker:latest
+    container_name: media-renamer
+    ports:
+      - "8080:8080"
+    environment:
+      PUID: 568             # der Benutzer "apps" auf TrueNAS SCALE
+      PGID: 568
+      TZ: Europe/Berlin
+      AUTH_PASSWORD: "dein-passwort"     # richtet den Zugangsschutz beim ersten Start ein
+    volumes:
+      - /mnt/tank/appdata/media-renamer:/config
+      - /mnt/tank/media:/data            # enthält input, movies, series, anime
+    restart: unless-stopped
+```
+
+Worauf es auf TrueNAS besonders ankommt:
+
+- **Ein Dataset für alles.** Quelle und Ziel müssen im selben Dataset liegen (hier
+  `/mnt/tank/media`), sonst kopiert ZFS beim Verschieben die kompletten Dateien statt
+  sie nur umzuhängen – bei 20 GB pro Film ein spürbarer Unterschied. Hardlinks
+  funktionieren über Dataset-Grenzen gar nicht.
+- **PUID/PGID auf 568 setzen** – das ist der `apps`-Benutzer von SCALE. Sonst gehören
+  die verschobenen Dateien root und Plex oder Jellyfin kommen nicht mehr heran.
+- **ACLs beachten.** Nutzt dein Dataset NFSv4-ACLs, muss der `apps`-Benutzer dort
+  Schreibrechte haben (Datasets → Edit Permissions). Andernfalls scheitert das
+  Verschieben mit „Permission denied“, gut sichtbar im Log-Tab.
+- **Snapshots.** Läuft im Ziel-Dataset eine Snapshot-Aufgabe, belegen ersetzte
+  Fassungen weiterhin Platz, bis der Snapshot ausläuft – das ist normal, aber gut
+  zu wissen, wenn „Ersetzen, wenn besser“ aktiv ist.
+- **Automatikbetrieb statt Cron.** Der Zeitplan steckt in der App selbst; du brauchst
+  keine TrueNAS-Cron-Aufgabe.
+
+Läuft neben dem Renamer ein Plex oder Jellyfin auf demselben TrueNAS, trage dessen
+Adresse unter „Medienserver benachrichtigen“ ein (z. B. `http://localhost:32400`,
+wenn beide im Host-Netz liegen, sonst die IP des NAS). Nach jedem Lauf wird die
+Bibliothek dann automatisch aktualisiert.
+
 ## Volumes
 
 | Pfad | Zweck |
 |---|---|
-| `/config` | Einstellungen, Verlauf und Logdateien (`/config/logs/`) |
+| `/config` | Einstellungen, Verlauf, Logdateien (`/config/logs/`), Cache und letzter Scan |
 | `/data` | Medien – Quelle und Ziel |
 
 **Wichtig:** Quelle und Ziel sollten unter **einem** Mount liegen (z. B. beides unter
@@ -255,13 +310,66 @@ Das Webinterface nutzt eine reguläre REST-API, die sich auch skripten lässt:
 | `GET /api/history`, `POST /api/undo` | Verlauf und Rücknahme |
 | `GET /api/logs` | Log-Zeilen, gefiltert nach `level` und `q` |
 | `GET /api/logs/download` | Vollständige Logdatei als Text |
+| `GET /api/scan` | Letzter Lauf – überlebt einen Neustart |
+| `POST /api/scan/{id}/cancel` | Laufenden Scan abbrechen |
+| `GET /api/group/{id}?src=…` | Alle Dateien desselben erkannten Titels |
+| `GET /api/auto`, `POST /api/auto/run` | Automatik: Status und Sofortlauf (`?dry_run=true`) |
+| `POST /api/login`, `POST /api/logout` | Anmeldung |
+| `GET/DELETE /api/cache` | Cache-Statistik und Leeren |
+| `POST /api/notify-test` | Verbindung zu Plex/Jellyfin/Webhooks prüfen |
 | `POST /api/preview-format` | Namensschema testen |
+
+## Automatikbetrieb
+
+Unter **Einstellungen → Automatikbetrieb** aktivierbar. Der Container scannt dann selbst
+im eingestellten Takt und verschiebt, was sicher erkannt wurde:
+
+- Es wird nur verschoben, was die **eigene, höhere Schwelle** erreicht (Standard 0,9).
+  Alles darunter bleibt liegen und wartet auf deine Durchsicht im Webinterface.
+- **Laufende Downloads werden erkannt**: Eine Datei muss eine einstellbare Zeit lang
+  unverändert sein (Standard 120 s), sonst wird sie übersprungen und beim nächsten
+  Lauf erneut geprüft.
+- Nach getaner Arbeit werden **Plex, Jellyfin und deine Webhooks** benachrichtigt.
+- Über **„Automatik testen"** siehst du gefahrlos, was passieren würde, ohne dass eine
+  Datei angefasst wird. **„Jetzt automatisch verarbeiten"** startet einen Lauf sofort.
+
+Die Leiste oben im Umbenennen-Tab zeigt jederzeit Status, letzten und nächsten Lauf.
+
+## Duplikate und Bibliotheks-Abgleich
+
+Vor dem Verschieben prüft der Renamer, ob am Ziel bereits eine Fassung derselben
+Episode oder desselben Films liegt, und vergleicht die Qualität: zuerst die Auflösung,
+dann die Quelle (Blu-ray schlägt WEB schlägt HDTV), dann HDR, zuletzt die Dateigröße.
+Das Ergebnis steht als Badge an der Datei. Drei Verhaltensweisen stehen zur Wahl:
+
+| Einstellung | Verhalten |
+|---|---|
+| **Überspringen** (Standard) | Vorhandenes bleibt unangetastet, die neue Datei bleibt liegen |
+| **Ersetzen, wenn besser** | Nur eine echte Verbesserung ersetzt die alte Fassung, die dann gelöscht wird |
+| **Trotzdem verschieben** | Beide Fassungen bleiben nebeneinander bestehen |
+
+## Untertitel
+
+Untertitel lösen **keine eigene Datenbankabfrage** mehr aus, sondern übernehmen Treffer
+und Zielnamen der zugehörigen Videodatei – erkannt über die Episode, nicht über den
+Dateinamen. `Dark.S02E05.German.de.srt` findet so auch dann zu
+`Dark.S02E05.German.1080p.mkv`, wenn die Namen nicht identisch sind. Das Sprachkürzel
+bleibt erhalten (`… - S02E05 - Lost.de.srt`). Nur Untertitel ohne passendes Video
+werden noch einzeln nachgeschlagen.
 
 ## Sicherheit
 
-Die Anwendung hat **keine Authentifizierung** und kann Dateien im gemounteten
-Verzeichnis verschieben und löschen. Betreibe sie nur im lokalen Netz oder hinter
-einem Reverse-Proxy mit Zugriffsschutz.
+- **Zugangsschutz**: Unter „Einstellungen → Zugang" lässt sich eine Anmeldung
+  einschalten. Das Passwort wird als PBKDF2-Hash mit zufälligem Salt gespeichert,
+  nie im Klartext. Alternativ setzt `AUTH_PASSWORD` beim ersten Start automatisch
+  einen Zugang ein – praktisch für TrueNAS, wo die App gleich geschützt starten soll.
+- `settings.json` enthält API-Keys und den Passwort-Hash und wird mit Rechten
+  **600** geschrieben.
+- Ohne aktivierten Zugangsschutz ist die Anwendung **offen** und kann Dateien
+  verschieben und löschen. Betreibe sie dann nur im lokalen Netz.
+- Für Zugriff von außen gehört ein Reverse-Proxy mit HTTPS davor. Das
+  Sitzungs-Cookie setzt das `Secure`-Flag automatisch, sobald die Verbindung
+  über HTTPS läuft (auch hinter einem Proxy mit `X-Forwarded-Proto`).
 
 ## Entwicklung
 

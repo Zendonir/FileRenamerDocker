@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import parser  # noqa: E402
+from app import parser
 
 ROOTS = ["/data/input"]
 
