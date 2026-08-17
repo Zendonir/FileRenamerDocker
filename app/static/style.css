@@ -99,6 +99,8 @@ legend { padding: 0 8px; color: var(--accent); font-weight: 600; }
 .badge.cat-movie { color: #8ab4ff; }
 .badge.cat-series { color: #6fd08c; }
 .badge.cat-anime { color: #ff9ecd; }
+.badge.src-folder { color: #ffd591; background: #3a2c10; }
+.badge.src-meta { color: #b9a6ff; background: #2a2440; }
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex;
   align-items: center; justify-content: center; padding: 20px; z-index: 10; }
 .modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;

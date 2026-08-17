@@ -14,7 +14,9 @@ Namensschema mit Platzhaltern, Vorschau vor der Ausführung und Verschieben ans 
 ## Funktionen
 
 - **Scan** rekursiv über beliebig viele Quellordner, Sample- und Kleinstdateien werden übersprungen
-- **Erkennung** von Titel, Jahr, Staffel, Episode, Auflösung, Codec, Release-Gruppe (via `guessit`)
+- **Erkennung in drei Stufen** – Dateiname, dann Ordnername, dann eingebettete
+  Container-Metadaten; ausgewertet werden Titel, Jahr, Staffel, Episode, Auflösung,
+  Codec und Release-Gruppe
 - **Abgleich** mit TMDB/TVDB inkl. Trefferqualität in Prozent; Serien wahlweise über TVDB oder TMDB
 - **Manuelle Korrektur**: pro Datei den richtigen Treffer suchen und auswählen; Zielpfad direkt editierbar
 - **Drei getrennte Kategorien** – Filme, Serien und Anime, jeweils mit eigenem Zielordner
@@ -115,6 +117,47 @@ Für falsch benannte Dateien gibt es zwei getrennte Werkzeuge:
 Wenn also eine Datei falsch umbenannt wurde: im **Log** nachsehen, welcher Treffer
 gewählt wurde, dann im **Verlauf** genau diesen Eintrag suchen und zurücknehmen.
 Danach die Datei erneut scannen und über **Treffer wählen** korrekt zuordnen.
+
+## Wie der Titel erkannt wird
+
+Die Erkennung läuft in drei Stufen. Jede Stufe kommt nur dran, wenn die vorherige
+nichts Brauchbares geliefert hat:
+
+**1. Der Dateiname** – der Normalfall. `Dark.S02E05.German.1080p.WEB.h264-GRP.mkv`
+ergibt Titel, Staffel, Episode, Auflösung, Quelle, Codec und Release-Gruppe in einem
+Rutsch. Der Ordner wird dabei bewusst ignoriert, damit ein gut benanntes File nicht
+vom Ordner überstimmt wird.
+
+**2. Der Ordnername** – wenn der Dateiname nichts hergibt. Als nichtssagend gelten
+reine Nummern (`01.mkv`), DVD-Rip-Namen (`VTS_01_1.mkv`), Hash-Namen
+(`a3f9c2b81e4d77aa.mkv`) und Allerweltsnamen (`video.mkv`, `untitled.mkv`).
+Dabei gilt:
+
+- **Staffelordner werden übersprungen**, liefern aber die Staffelnummer:
+  `Breaking Bad (2008)/Season 03/01.mkv` → Breaking Bad, S03E01. Erkannt werden
+  `Season 3`, `Staffel 3`, `S03` sowie `Specials`, `Extras`, `Disc 1`, `CD2`, `Subs`.
+- **Sammelordner werden übersprungen** – aus `Downloads`, `complete`, `Torrents`,
+  `Serien`, `Filme` oder `Anime` wird nie ein Titel; die Suche geht eine Ebene höher.
+- **Der Quellordner selbst zählt nie**, sonst hieße jeder Film nach dem Downloadordner.
+- Ziffern aus einem Müll-Dateinamen werden **nicht** als Episode missverstanden:
+  `Der Pate (1972)/VTS_01_1.mkv` bleibt ein Film und wird nicht zu Episode 1.
+
+**3. Eingebettete Metadaten** – zuletzt die Tags im Container selbst, gelesen aus
+MKV/WebM (Matroska-Tags und Segment-Titel) und MP4/M4V/MOV (iTunes-Atome). Ausgewertet
+werden Serientitel, Episodentitel, Staffel, Episode und Erscheinungsjahr. Das rettet
+Dateien, die weder im Namen noch im Ordner etwas verraten.
+
+Das Auslesen läuft **ohne ffmpeg** – die Container werden direkt gelesen, es werden nur
+die Kopf-Bytes angefasst. Das spart rund 250 MB Image-Größe gegenüber einer
+ffmpeg-Installation.
+
+Unabhängig davon füllen die Metadaten immer **Lücken**: Steht der Titel im Dateinamen,
+fehlen aber Staffel und Episode, werden sie aus den Tags ergänzt.
+
+Im Webinterface zeigt ein Badge an, woher der Titel stammt – 📁 **aus Ordner** oder
+🏷️ **aus Metadaten**; ohne Badge kam er aus dem Dateinamen. Im Log steht dieselbe
+Information als eigene Zeile. Beide Zusatzstufen lassen sich in den Einstellungen
+einzeln abschalten.
 
 ## Kategorien: Film, Serie, Anime
 

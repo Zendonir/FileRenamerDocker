@@ -53,6 +53,8 @@ class Settings(BaseModel):
     extensions: list[str] | None = None
     subtitle_extensions: list[str] | None = None
     min_size_mb: int | None = None
+    use_folder_names: bool | None = None
+    use_embedded_metadata: bool | None = None
     clean_empty_dirs: bool | None = None
     overwrite: bool | None = None
 

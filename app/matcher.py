@@ -197,7 +197,12 @@ class Matcher:
     async def process_file(self, client, entry: dict) -> dict:
         """Analysiert eine Datei und liefert Vorschlag + Alternativen."""
         src = Path(entry["path"])
-        guess = parser.parse(str(src))
+        guess = parser.parse(
+            str(src),
+            roots=self.settings.get("source_dirs"),
+            use_folder=self.settings.get("use_folder_names", True),
+            use_metadata=self.settings.get("use_embedded_metadata", True),
+        )
         result = {
             "src": str(src),
             "name": src.name,
@@ -210,12 +215,17 @@ class Matcher:
             "dest": None,
             "status": "unmatched",
             "category": "movie",
+            "title_source": guess.get("title_source"),
             "error": None,
         }
         if not guess.get("title"):
-            result["error"] = "Kein Titel aus dem Dateinamen erkennbar."
+            result["error"] = "Kein Titel erkennbar – weder aus Dateiname, Ordner noch Metadaten."
             log.warning("Nicht analysierbar: %s", src)
             return result
+        if guess.get("title_source") != "filename":
+            log.info("Titel für %s stammt aus %s: '%s'", src.name,
+                     {"folder": "dem Ordnernamen", "metadata": "den Metadaten"}
+                     .get(guess["title_source"], guess["title_source"]), guess["title"])
 
         # Erste Einschätzung noch ohne Datenbank – sie bestimmt, welche Quelle gefragt wird.
         category = category_of(str(src), guess, None, self.settings)

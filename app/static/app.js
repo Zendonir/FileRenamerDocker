@@ -12,6 +12,14 @@ const CATEGORIES = {
   anime: { label: 'Anime', icon: '🎌' },
 };
 
+// Woher der Titel stammt – der Dateiname ist der Normalfall und bleibt unmarkiert.
+const SOURCE_BADGES = {
+  folder: '<span class="badge src-folder" title="Der Dateiname war nicht aussagekräftig, '
+    + 'der Titel stammt aus dem Ordnernamen">📁 aus Ordner</span>',
+  metadata: '<span class="badge src-meta" title="Titel aus den im Container '
+    + 'eingebetteten Metadaten">🏷️ aus Metadaten</span>',
+};
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -260,6 +268,7 @@ function render() {
     const meta = [
       `<span class="badge ${badge}">${{ matched: 'Erkannt', review: 'Prüfen', unmatched: 'Ohne Treffer' }[item.status]}</span>`,
       `<span class="badge cat-${item.category || 'movie'}">${cat.icon} ${cat.label}</span>`,
+      SOURCE_BADGES[item.title_source] || '',
       item.match ? `<span>${item.match.title}${item.match.year ? ` (${item.match.year})` : ''} · ${item.match.provider.toUpperCase()}</span>` : '',
       `<span>Qualität ${Math.round((item.confidence || 0) * 100)} %</span>`,
       item.is_subtitle ? '<span class="badge">Untertitel</span>' : '',

@@ -32,6 +32,8 @@ DEFAULTS = {
     ],
     "subtitle_extensions": [".srt", ".sub", ".ass", ".ssa", ".idx", ".sup"],
     "min_size_mb": 50,
+    "use_folder_names": True,        # Ordnername, wenn der Dateiname nichts hergibt
+    "use_embedded_metadata": True,   # Container-Tags als letzte Quelle und Lückenfüller
     "clean_empty_dirs": True,
     "overwrite": False,
 }
