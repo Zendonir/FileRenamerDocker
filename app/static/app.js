@@ -1,7 +1,10 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
-const state = { jobId: null, items: [], filter: 'all', selected: new Set(), history: [], histSel: new Set() };
+const state = {
+  jobId: null, items: [], filter: 'all', selected: new Set(),
+  history: [], histSel: new Set(), logTimer: null,
+};
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -21,6 +24,7 @@ $$('.tab').forEach((tab) => tab.addEventListener('click', () => {
   $$('.tab').forEach((t) => t.classList.toggle('active', t === tab));
   $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === `tab-${tab.dataset.tab}`));
   if (tab.dataset.tab === 'history') loadHistory();
+  if (tab.dataset.tab === 'log') { loadLog(); startLogAuto(); } else stopLogAuto();
 }));
 
 /* ---------- Einstellungen ---------- */
@@ -327,14 +331,29 @@ async function loadHistory() {
   const { entries } = await api('/api/history');
   state.history = entries;
   state.histSel.clear();
+  renderHistory();
+}
+
+function renderHistory() {
+  const needle = $('#history-search').value.trim().toLowerCase();
+  const mode = $('#history-filter').value;
+  const entries = state.history.filter((e) => {
+    if (mode === 'open' && e.undone) return false;
+    if (mode === 'undone' && !e.undone) return false;
+    if (needle && !`${e.src} ${e.dest}`.toLowerCase().includes(needle)) return false;
+    return true;
+  });
   const list = $('#history-list');
-  list.innerHTML = entries.length ? '' : '<p class="hint">Noch keine Operationen ausgeführt.</p>';
+  list.innerHTML = entries.length
+    ? ''
+    : `<p class="hint">${state.history.length ? 'Keine Einträge für diesen Filter.' : 'Noch keine Operationen ausgeführt.'}</p>`;
   for (const entry of entries) {
     const row = document.createElement('div');
     row.className = `hist${entry.undone ? ' undone' : ''}`;
     const check = document.createElement('input');
     check.type = 'checkbox';
     check.disabled = !!entry.undone;
+    check.checked = state.histSel.has(entry.time);
     check.onchange = () => {
       if (check.checked) state.histSel.add(entry.time); else state.histSel.delete(entry.time);
       $('#btn-undo').disabled = state.histSel.size === 0;
@@ -347,9 +366,12 @@ async function loadHistory() {
     row.append(check, text);
     list.appendChild(row);
   }
-  $('#btn-undo').disabled = true;
-  $('#history-all').checked = false;
+  $('#btn-undo').disabled = state.histSel.size === 0;
 }
+
+$('#history-search').addEventListener('input', renderHistory);
+$('#history-filter').addEventListener('change', renderHistory);
+$('#btn-history-reload').addEventListener('click', loadHistory);
 
 $('#history-all').addEventListener('change', (e) => {
   $$('#history-list input[type=checkbox]').forEach((c) => {
@@ -366,6 +388,50 @@ $('#btn-undo').addEventListener('click', async () => {
   alert(`${res.ok} rückgängig gemacht.` +
     (failed.length ? `\n\n${failed.map((f) => `${f.dest}: ${f.error}`).join('\n')}` : ''));
   loadHistory();
+});
+
+/* ---------- Log ---------- */
+async function loadLog() {
+  const level = $('#log-level').value;
+  const query = $('#log-search').value.trim();
+  const list = $('#log-list');
+  try {
+    const data = await api(`/api/logs?level=${level}&q=${encodeURIComponent(query)}&limit=500`);
+    list.innerHTML = data.entries.length
+      ? ''
+      : '<p class="hint" style="padding:12px">Keine Einträge für diesen Filter.</p>';
+    for (const entry of data.entries) {
+      const row = document.createElement('div');
+      row.className = `log-row ${entry.level}`;
+      const time = new Date(entry.time * 1000).toLocaleString('de-DE');
+      row.innerHTML = `<span class="ts">${time}</span><span class="lvl">${entry.level}</span>`;
+      const msg = document.createElement('span');
+      msg.className = 'msg';
+      msg.textContent = entry.message;
+      row.appendChild(msg);
+      list.appendChild(row);
+    }
+    $('#log-meta').textContent =
+      `${data.entries.length} von ${data.total} Zeilen im Speicher · vollständiges Log: ${data.file}`;
+  } catch (err) {
+    list.innerHTML = `<p class="hint" style="padding:12px">Log nicht abrufbar: ${err.message}</p>`;
+  }
+}
+
+function startLogAuto() {
+  stopLogAuto();
+  if ($('#log-auto').checked) state.logTimer = setInterval(loadLog, 4000);
+}
+function stopLogAuto() {
+  if (state.logTimer) { clearInterval(state.logTimer); state.logTimer = null; }
+}
+
+$('#btn-log-reload').addEventListener('click', loadLog);
+$('#log-level').addEventListener('change', loadLog);
+$('#log-auto').addEventListener('change', startLogAuto);
+$('#log-search').addEventListener('input', () => {
+  clearTimeout(state.logSearchTimer);
+  state.logSearchTimer = setTimeout(loadLog, 300);
 });
 
 loadSettings();

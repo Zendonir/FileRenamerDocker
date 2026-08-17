@@ -13,6 +13,7 @@
     <button class="tab active" data-tab="rename">Umbenennen</button>
     <button class="tab" data-tab="settings">Einstellungen</button>
     <button class="tab" data-tab="history">Verlauf</button>
+    <button class="tab" data-tab="log">Log</button>
   </nav>
 </header>
 
@@ -128,8 +129,37 @@
     <div class="toolbar">
       <button id="btn-undo" disabled>Auswahl rückgängig machen</button>
       <label><input type="checkbox" id="history-all"> Alle</label>
+      <input id="history-search" placeholder="Suchen (Dateiname, Pfad) …">
+      <select id="history-filter">
+        <option value="all">Alle Einträge</option>
+        <option value="open">Nur aktive</option>
+        <option value="undone">Nur rückgängig gemachte</option>
+      </select>
+      <span class="spacer"></span>
+      <button id="btn-history-reload">Aktualisieren</button>
     </div>
+    <p class="hint">Hier lässt sich jede ausgeführte Operation einzeln zurücknehmen –
+      verschobene Dateien wandern an den ursprünglichen Ort zurück, Kopien und Links
+      werden entfernt.</p>
     <div id="history-list"></div>
+  </section>
+
+  <section id="tab-log" class="tab-panel">
+    <div class="toolbar">
+      <select id="log-level">
+        <option value="DEBUG">Alles (Debug)</option>
+        <option value="INFO" selected>Info und höher</option>
+        <option value="WARNING">Nur Warnungen und Fehler</option>
+        <option value="ERROR">Nur Fehler</option>
+      </select>
+      <input id="log-search" placeholder="Im Log suchen …">
+      <label><input type="checkbox" id="log-auto" checked> Automatisch aktualisieren</label>
+      <span class="spacer"></span>
+      <button id="btn-log-reload">Aktualisieren</button>
+      <a class="btn" href="/api/logs/download" download>Logdatei herunterladen</a>
+    </div>
+    <p class="hint" id="log-meta"></p>
+    <div id="log-list" class="log"></div>
   </section>
 </main>
 

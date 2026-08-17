@@ -4,7 +4,9 @@ import shutil
 import time
 from pathlib import Path
 
-from . import config
+from . import config, logs
+
+log = logs.get("renamer")
 
 
 class ActionError(RuntimeError):
@@ -81,6 +83,7 @@ def apply(items: list[dict], action: str, overwrite: bool, clean_empty: bool,
     history = []
     source_dirs: set[Path] = set()
 
+    log.info("Aktion '%s' gestartet für %d Datei(en).", action, len(items))
     for item in items:
         src = Path(item["src"])
         dest = Path(item["dest"])
@@ -88,6 +91,7 @@ def apply(items: list[dict], action: str, overwrite: bool, clean_empty: bool,
             final = transfer(src, dest, action, overwrite)
             source_dirs.add(src.parent)
             results.append({"src": str(src), "dest": str(final), "ok": True, "error": None})
+            log.info("%s: %s -> %s", action, src, final)
             if action != "test":
                 history.append({
                     "time": time.time(),
@@ -98,12 +102,18 @@ def apply(items: list[dict], action: str, overwrite: bool, clean_empty: bool,
                 })
         except (ActionError, OSError) as exc:
             results.append({"src": str(src), "dest": str(dest), "ok": False, "error": str(exc)})
+            log.error("%s fehlgeschlagen: %s -> %s (%s)", action, src, dest, exc)
 
     removed = []
     if clean_empty and action == "move":
         removed = cleanup_dirs(source_dirs, {Path(r) for r in roots})
+        for path in removed:
+            log.info("Leeren Quellordner entfernt: %s", path)
     if history:
         config.append_history(history)
+
+    log.info("Aktion '%s' beendet: %d erfolgreich, %d fehlgeschlagen.",
+             action, sum(1 for r in results if r["ok"]), sum(1 for r in results if not r["ok"]))
 
     return {
         "results": results,
@@ -135,8 +145,10 @@ def undo(entry_times: list[float]) -> dict:
                 dest.unlink()
             entry["undone"] = True
             results.append({"dest": str(dest), "ok": True, "error": None})
+            log.warning("Rückgängig gemacht (%s): %s -> %s", entry["action"], dest, src)
         except (ActionError, OSError) as exc:
             results.append({"dest": str(dest), "ok": False, "error": str(exc)})
+            log.error("Rückgängig fehlgeschlagen: %s (%s)", dest, exc)
 
     config.replace_history(history)
     return {"results": results, "ok": sum(1 for r in results if r["ok"])}

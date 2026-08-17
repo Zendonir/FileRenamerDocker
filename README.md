@@ -20,7 +20,8 @@ Namensschema mit Platzhaltern, Vorschau vor der Ausführung und Verschieben ans 
 - **Namensschema** mit FileBot-ähnlichen Platzhaltern und Live-Vorschau in den Einstellungen
 - **Aktionen**: Verschieben, Kopieren, Hardlink, Symlink oder Trockenlauf („Nur testen“)
 - **Mehrteilige Episoden** (`S01E01E02`), Untertitel-Dateien mit Sprachkürzel, Teil-/CD-Nummern
-- **Verlauf mit Undo** – jede Operation lässt sich einzeln zurücknehmen
+- **Verlauf mit Undo** – jede Operation lässt sich einzeln zurücknehmen, mit Suche und Filter
+- **Log im Webinterface** – alle Aktionen und Fehler live mitlesen, filtern und herunterladen
 - **Leere Quellordner** werden nach dem Verschieben optional aufgeräumt
 - **PUID/PGID**, damit verschobene Dateien dem richtigen Benutzer gehören
 
@@ -60,7 +61,7 @@ Keys entweder im Webinterface unter **Einstellungen** eintragen (landen in
 
 | Pfad | Zweck |
 |---|---|
-| `/config` | Einstellungen und Verlauf |
+| `/config` | Einstellungen, Verlauf und Logdateien (`/config/logs/`) |
 | `/data` | Medien – Quelle und Ziel |
 
 **Wichtig:** Quelle und Ziel sollten unter **einem** Mount liegen (z. B. beides unter
@@ -77,6 +78,38 @@ Hardlinks funktionieren gar nicht.
 4. Dateien anhaken, Aktion wählen, **Übernehmen**. Mit „Nur testen“ passiert nichts
    auf der Platte – ideal für den ersten Durchlauf.
 5. **Verlauf**: Falls etwas schiefging, Einträge anhaken und rückgängig machen.
+6. **Log**: Zeigt, was genau passiert ist – hilfreich, wenn eine Datei falsch
+   zugeordnet wurde oder eine Aktion fehlschlug.
+
+## Log und Rückgängigmachen
+
+Für falsch benannte Dateien gibt es zwei getrennte Werkzeuge:
+
+**Tab „Verlauf“** – die Liste aller ausgeführten Operationen, jede einzeln zurücknehmbar:
+
+- Verschobene Dateien wandern exakt an den ursprünglichen Ort zurück, inklusive Ordner.
+- Kopien, Hard- und Symlinks werden am Ziel wieder entfernt; die Quelle bleibt unangetastet.
+- Suchfeld und Filter („nur aktive“ / „nur rückgängig gemachte“) helfen, einen einzelnen
+  Eintrag unter tausenden zu finden – du musst also nicht einen ganzen Lauf zurücknehmen,
+  um eine falsch benannte Datei zu korrigieren.
+- Bereits zurückgenommene Einträge bleiben grau sichtbar stehen, damit nachvollziehbar
+  bleibt, was passiert ist.
+- Gespeichert in `/config/history.json`, überlebt Container-Neustarts (max. 2000 Einträge).
+
+**Tab „Log“** – das laufende Protokoll:
+
+- Erfasst Scans, Datenbank-Treffer samt Trefferqualität, manuelle Zuweisungen, jede
+  Datei-Operation mit Quell- und Zielpfad, Fehler und jedes Rückgängigmachen.
+- Filter nach Level (Debug/Info/Warnung/Fehler) und Volltextsuche über alle Zeilen.
+- Aktualisiert sich alle 4 Sekunden automatisch – ein laufender Scan ist live mitlesbar.
+- **Logdatei herunterladen** liefert `/config/logs/renamer.log` als Textdatei.
+- Die Datei rotiert bei 5 MB und behält 5 Generationen (`renamer.log.1` … `.5`), läuft
+  also nicht voll. Sie liegt unter `/config` und übersteht Neustarts; die Ansicht im
+  Browser zeigt die letzten 2000 Zeilen seit dem Start.
+
+Wenn also eine Datei falsch umbenannt wurde: im **Log** nachsehen, welcher Treffer
+gewählt wurde, dann im **Verlauf** genau diesen Eintrag suchen und zurücknehmen.
+Danach die Datei erneut scannen und über **Treffer wählen** korrekt zuordnen.
 
 ## Namensschema
 
@@ -126,6 +159,8 @@ Das Webinterface nutzt eine reguläre REST-API, die sich auch skripten lässt:
 | `POST /api/select` | Treffer manuell zuweisen |
 | `POST /api/apply` | Aktion ausführen |
 | `GET /api/history`, `POST /api/undo` | Verlauf und Rücknahme |
+| `GET /api/logs` | Log-Zeilen, gefiltert nach `level` und `q` |
+| `GET /api/logs/download` | Vollständige Logdatei als Text |
 | `POST /api/preview-format` | Namensschema testen |
 
 ## Sicherheit

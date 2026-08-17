@@ -1,20 +1,32 @@
 """FastAPI-Backend für den Medien-Renamer."""
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, naming, renamer, scanner
+from . import config, logs, naming, renamer, scanner
 from .matcher import Matcher
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="Media Renamer", version="1.0.0")
+logs.setup()
+log = logs.get("app")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    log.info("Media Renamer gestartet. Logdatei: %s", logs.LOG_FILE)
+    yield
+    log.info("Media Renamer wird beendet.")
+
+
+app = FastAPI(title="Media Renamer", version="1.1.0", lifespan=lifespan)
 
 # Laufende und abgeschlossene Scan-Jobs (Prozess-lokal, bewusst nicht persistiert).
 JOBS: dict[str, dict] = {}
@@ -73,6 +85,22 @@ class UndoRequest(BaseModel):
     times: list[float]
 
 
+@app.get("/api/logs")
+async def get_logs(level: str = "INFO", q: str = "", limit: int = 300,
+                   after_id: int | None = None):
+    """Log-Zeilen für die Web-Ansicht, neueste zuerst."""
+    return logs.entries(level=level, query=q, limit=limit, after_id=after_id)
+
+
+@app.get("/api/logs/download", response_class=PlainTextResponse)
+async def download_logs(lines: int = 5000):
+    """Rohes Logfile-Ende zum Herunterladen bzw. für Support-Anfragen."""
+    return PlainTextResponse(
+        logs.tail_file(lines),
+        headers={"Content-Disposition": 'attachment; filename="renamer.log"'},
+    )
+
+
 @app.get("/api/health")
 async def health():
     settings = config.load()
@@ -101,6 +129,8 @@ async def post_settings(payload: Settings):
         if patch.get(key) == "***":
             patch.pop(key)
     config.save(patch)
+    changed = [k for k in patch if k not in ("tmdb_api_key", "tvdb_api_key")]
+    log.info("Einstellungen geändert: %s", ", ".join(changed) or "API-Keys")
     return await get_settings()
 
 
@@ -137,6 +167,7 @@ async def preview_format(payload: dict):
 async def _run_scan(job_id: str, source_dirs: list[str], include_subtitles: bool):
     job = JOBS[job_id]
     settings = config.load()
+    log.info("Scan gestartet in: %s", ", ".join(source_dirs))
     try:
         entries = scanner.scan(
             source_dirs,
@@ -146,8 +177,10 @@ async def _run_scan(job_id: str, source_dirs: list[str], include_subtitles: bool
             settings["subtitle_extensions"],
         )
         job["total"] = len(entries)
+        log.info("Scan: %d Datei(en) gefunden.", len(entries))
         if not entries:
             job["status"] = "done"
+            log.warning("Keine passenden Dateien gefunden — Quellordner und Endungen prüfen.")
             return
 
         matcher = Matcher(settings)
@@ -163,9 +196,14 @@ async def _run_scan(job_id: str, source_dirs: list[str], include_subtitles: bool
 
             await asyncio.gather(*(run(e) for e in entries))
         job["status"] = "done"
+        counts = {s: sum(1 for i in job["items"] if i["status"] == s)
+                  for s in ("matched", "review", "unmatched")}
+        log.info("Scan beendet: %d erkannt, %d zu prüfen, %d ohne Treffer.",
+                 counts["matched"], counts["review"], counts["unmatched"])
     except Exception as exc:  # Job-Fehler landen sichtbar im Webinterface.
         job["status"] = "error"
         job["error"] = str(exc)
+        log.exception("Scan abgebrochen: %s", exc)
 
 
 @app.post("/api/scan")
@@ -246,6 +284,8 @@ async def select(payload: SelectRequest):
         item["dest"] = matcher.destination(guess, match, Path(payload.src), episodes)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    log.info("Manuell zugewiesen: %s -> '%s' (%s #%s)",
+             Path(payload.src).name, match.get("title"), payload.provider, payload.id)
     return item
 
 

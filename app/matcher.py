@@ -6,8 +6,10 @@ from pathlib import Path
 
 import httpx
 
-from . import naming, parser
+from . import logs, naming, parser
 from .providers import TMDB, TVDB
+
+log = logs.get("matcher")
 
 
 def _normalize(text: str) -> str:
@@ -132,16 +134,19 @@ class Matcher:
         }
         if not guess.get("title"):
             result["error"] = "Kein Titel aus dem Dateinamen erkennbar."
+            log.warning("Nicht analysierbar: %s", src)
             return result
 
         try:
             candidates = await self.search(client, guess["type"], guess["title"], guess.get("year"))
         except (httpx.HTTPError, RuntimeError) as exc:
             result["error"] = str(exc)
+            log.error("Datenbankabfrage fehlgeschlagen für '%s': %s", guess["title"], exc)
             return result
 
         if not candidates:
             result["error"] = "Keine Treffer bei der Datenbank."
+            log.warning("Keine Treffer für '%s' (%s)", guess["title"], src.name)
             return result
 
         for candidate in candidates:
@@ -164,10 +169,15 @@ class Matcher:
             result["dest"] = self.destination(guess, best, src, episodes)
         except ValueError as exc:
             result["error"] = str(exc)
+            log.error("Zielpfad für %s nicht berechenbar: %s", src.name, exc)
             return result
 
         threshold = float(self.settings.get("min_confidence", 0.7))
         result["status"] = "matched" if best["confidence"] >= threshold else "review"
+        log.info("%s: '%s' -> %s (%s, %d %%)", src.name, guess["title"],
+                 best["title"], best["provider"].upper(), round(best["confidence"] * 100))
+        if result["status"] == "review":
+            log.warning("Unsicherer Treffer, bitte prüfen: %s", src.name)
         return result
 
     async def process(self, entries: list[dict], concurrency: int = 5) -> list[dict]:
