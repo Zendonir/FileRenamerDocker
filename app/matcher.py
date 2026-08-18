@@ -258,6 +258,7 @@ class Matcher:
             "status": "unmatched",
             "category": "movie",
             "title_source": guess.get("title_source"),
+            "thumb_url": None,
             "error": None,
         }
         if not guess.get("title"):
@@ -302,6 +303,8 @@ class Matcher:
         episodes = None
         if category != "movie":
             episodes = await self.episodes_for(client, category, best["provider"], best["id"], guess)
+            if episodes and episodes[0]:
+                result["thumb_url"] = episodes[0].get("thumb_url")
 
         try:
             result["dest"] = self.destination(guess, best, src, episodes, category)

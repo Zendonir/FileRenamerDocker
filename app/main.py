@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth, cache, config, logs, naming, nfo, notify, renamer, scanner, scheduler
+from . import artwork, auth, cache, config, logs, naming, nfo, notify, renamer, scanner, scheduler
 from .matcher import Matcher
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -78,6 +78,7 @@ class Settings(BaseModel):
     jellyfin_url: str | None = None
     jellyfin_token: str | None = None
     write_nfo: bool | None = None
+    download_artwork: bool | None = None
     ascii_only: bool | None = None
     windows_safe: bool | None = None
     auth_enabled: bool | None = None
@@ -513,6 +514,11 @@ async def apply(payload: ApplyRequest):
             if entry["ok"] and item and not item.get("is_subtitle") and nfo.write(item, entry["dest"]):
                 written += 1
         result["nfo_written"] = written
+
+    if settings.get("download_artwork") and action != "test":
+        done = {r["src"]: r["dest"] for r in result["results"] if r["ok"]}
+        chosen = [known[src] for src in done if src in known]
+        result["artwork_written"] = await artwork.download(chosen, done, settings)
 
     if result["ok"] and action != "test":
         await notify.notify_all(settings, {"applied": result["ok"], "action": action})

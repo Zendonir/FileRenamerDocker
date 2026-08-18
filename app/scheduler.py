@@ -3,7 +3,7 @@ import asyncio
 import time
 from pathlib import Path
 
-from . import config, logs, nfo, notify, renamer, scanner
+from . import artwork, config, logs, nfo, notify, renamer, scanner
 from .matcher import Matcher
 
 log = logs.get("auto")
@@ -86,11 +86,13 @@ async def run_once(settings: dict | None = None, dry_run: bool = False) -> dict:
     summary["failed"] = result["failed"]
     summary["skipped"] = result.get("skipped", 0)
 
+    done = {r["src"]: r["dest"] for r in result["results"] if r["ok"]}
     if settings.get("write_nfo"):
-        done = {r["src"]: r["dest"] for r in result["results"] if r["ok"]}
         for item in chosen:
             if item["src"] in done and not item.get("is_subtitle"):
                 nfo.write(item, done[item["src"]])
+    if settings.get("download_artwork"):
+        summary["artwork"] = await artwork.download(chosen, done, settings)
 
     log.info("Automatiklauf beendet: %d verschoben, %d übersprungen, %d Fehler, "
              "%d zur Durchsicht.", summary["applied"], summary["skipped"],

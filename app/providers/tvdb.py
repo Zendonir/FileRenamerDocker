@@ -10,6 +10,14 @@ from . import http
 BASE = "https://api4.thetvdb.com/v4"
 
 
+def _artwork_of_type(data: dict, kind: int) -> str | None:
+    """Erstes Bild einer bestimmten TVDB-Art (1 = Banner, 2 = Poster, 3 = Hintergrund)."""
+    for art in data.get("artworks", []) or []:
+        if art.get("type") == kind and art.get("image"):
+            return art["image"]
+    return None
+
+
 class TVDBError(RuntimeError):
     pass
 
@@ -96,6 +104,13 @@ class TVDB:
             "rating": data.get("score"),
             "original_language": data.get("originalLanguage"),
             "origin_country": [data["originalCountry"]] if data.get("originalCountry") else [],
+            "poster_url": data.get("image"),
+            "fanart_url": _artwork_of_type(data, 3),      # 3 = Hintergrundbild
+            "season_posters": {
+                season.get("number"): season["image"]
+                for season in data.get("seasons", []) or []
+                if season.get("image") and season.get("number") is not None
+            },
         }
 
     async def episode(self, client, series_id: int, season: int, episode: int) -> dict | None:
@@ -132,4 +147,5 @@ class TVDB:
             "absolute": e.get("absoluteNumber"),
             "season": season,
             "episode": episode,
+            "thumb_url": e.get("image"),
         }

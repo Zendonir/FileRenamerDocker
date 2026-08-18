@@ -6,6 +6,12 @@ import httpx
 from . import http
 
 BASE = "https://api.themoviedb.org/3"
+IMAGE_BASE = "https://image.tmdb.org/t/p"
+
+
+def _image(path: str | None, size: str = "original") -> str | None:
+    """Baut die vollständige Bild-URL; ohne Pfad gibt es kein Bild."""
+    return f"{IMAGE_BASE}/{size}{path}" if path else None
 
 
 class TMDBError(RuntimeError):
@@ -107,6 +113,8 @@ class TMDB:
             "collection": (m.get("belongs_to_collection") or {}).get("name"),
             "genres": [g["name"] for g in m.get("genres", [])],
             "rating": m.get("vote_average"),
+            "poster_url": _image(m.get("poster_path")),
+            "fanart_url": _image(m.get("backdrop_path")),
         }
 
     async def episode(self, client, series_id: int, season: int, episode: int) -> dict | None:
@@ -120,6 +128,7 @@ class TMDB:
             "absolute": None,
             "season": e.get("season_number", season),
             "episode": e.get("episode_number", episode),
+            "thumb_url": _image(e.get("still_path")),
         }
 
     async def series_details(self, client, series_id: int) -> dict:
@@ -134,4 +143,11 @@ class TMDB:
             "rating": s.get("vote_average"),
             "original_language": s.get("original_language"),
             "origin_country": s.get("origin_country", []),
+            "poster_url": _image(s.get("poster_path")),
+            "fanart_url": _image(s.get("backdrop_path")),
+            "season_posters": {
+                season["season_number"]: _image(season.get("poster_path"))
+                for season in s.get("seasons", []) or []
+                if season.get("poster_path")
+            },
         }

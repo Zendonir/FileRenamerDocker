@@ -201,8 +201,15 @@
 
       <fieldset>
         <legend>Begleitdateien und Zeichensatz</legend>
+        <p class="hint">Beides ist optional und standardmäßig ausgeschaltet – ohne Häkchen
+          wird ausschließlich die Mediendatei selbst angefasst.</p>
         <label class="inline"><input name="write_nfo" type="checkbox">
           NFO-Datei für Kodi/Jellyfin/Emby daneben ablegen</label>
+        <label class="inline"><input name="download_artwork" type="checkbox">
+          Poster und Hintergrundbilder herunterladen</label>
+        <p class="hint">Filme bekommen <code>poster.jpg</code> und <code>fanart.jpg</code> in
+          ihrem Ordner, Serien zusätzlich <code>seasonXX-poster.jpg</code> und ein
+          Episodenbild <code>…-thumb.jpg</code>. Vorhandene Bilder bleiben unangetastet.</p>
         <label class="inline"><input name="ascii_only" type="checkbox">
           Umlaute umschreiben (ä → ae) – hilfreich bei SMB-Freigaben an alte Clients</label>
         <label class="inline"><input name="windows_safe" type="checkbox">

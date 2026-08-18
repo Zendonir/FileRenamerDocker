@@ -31,7 +31,8 @@ Namensschema mit Platzhaltern, Vorschau vor der Ausführung und Verschieben ans 
 - **Automatikbetrieb** – scannt in festem Takt und verschiebt sicher Erkanntes selbst;
   laufende Downloads werden erkannt und bleiben liegen
 - **Plex, Jellyfin und Webhooks** werden nach getaner Arbeit benachrichtigt
-- **NFO-Dateien** für Kodi/Jellyfin/Emby optional daneben ablegen
+- **NFO-Dateien, Poster und Hintergrundbilder** für Kodi/Jellyfin/Emby – rein
+  optional und standardmäßig aus
 - **Verlauf mit Undo** – jede Operation lässt sich einzeln zurücknehmen, mit Suche und Filter
 - **Log im Webinterface** – alle Aktionen und Fehler live mitlesen, filtern und herunterladen
 - **Zugangsschutz** per Passwort, **Antwort-Cache** für schnelle Wiederholungsläufe
@@ -317,6 +318,9 @@ Das Webinterface nutzt eine reguläre REST-API, die sich auch skripten lässt:
 | `POST /api/login`, `POST /api/logout` | Anmeldung |
 | `GET/DELETE /api/cache` | Cache-Statistik und Leeren |
 | `POST /api/notify-test` | Verbindung zu Plex/Jellyfin/Webhooks prüfen |
+
+Die Antwort von `POST /api/apply` enthält bei eingeschalteten Optionen zusätzlich
+`nfo_written` und `artwork_written` mit der Anzahl geschriebener Begleitdateien.
 | `POST /api/preview-format` | Namensschema testen |
 
 ## Automatikbetrieb
@@ -347,6 +351,44 @@ Das Ergebnis steht als Badge an der Datei. Drei Verhaltensweisen stehen zur Wahl
 | **Überspringen** (Standard) | Vorhandenes bleibt unangetastet, die neue Datei bleibt liegen |
 | **Ersetzen, wenn besser** | Nur eine echte Verbesserung ersetzt die alte Fassung, die dann gelöscht wird |
 | **Trotzdem verschieben** | Beide Fassungen bleiben nebeneinander bestehen |
+
+## Begleitdateien: NFO, Poster, Hintergrundbilder
+
+**Beide Funktionen sind optional und ab Werk ausgeschaltet.** Ohne Häkchen unter
+„Einstellungen → Begleitdateien" wird ausschließlich die Mediendatei selbst angefasst –
+es entsteht keine einzige Zusatzdatei und es geht keine Anfrage nach draußen.
+
+**NFO-Dateien** (`write_nfo`) legen neben jede Datei eine XML-Datei im Kodi-Format:
+Titel, Jahr, Genres, Bewertung und die Datenbank-IDs (TMDB/TVDB und, wenn bekannt,
+IMDb). Filme bekommen `<movie>`, Episoden `<episodedetails>` mit Serientitel, Staffel,
+Episode und Erstausstrahlung.
+
+**Poster und Hintergrundbilder** (`download_artwork`) werden nach den Konventionen
+abgelegt, die Kodi, Jellyfin und Emby verstehen:
+
+| Was | Wohin |
+|---|---|
+| Film mit eigenem Ordner | `poster.jpg`, `fanart.jpg` im Filmordner |
+| Film direkt im Zielordner | `<Dateiname>-poster.jpg`, `<Dateiname>-fanart.jpg` |
+| Serie | `poster.jpg`, `fanart.jpg` im Serienordner |
+| Staffel | `seasonXX-poster.jpg` im Serienordner **und** `poster.jpg` im Staffelordner |
+| Episode | `<Dateiname>-thumb.jpg` neben der Episode |
+
+Das Staffelposter wird bewusst doppelt abgelegt: Kodi sucht es im Serienordner,
+Jellyfin im Staffelordner. Zwei kleine Dateien sparen die Entscheidung.
+
+Weitere Eigenschaften:
+
+- **Vorhandene Bilder bleiben unangetastet** – schon abgelegte oder selbst gewählte
+  Poster werden nie überschrieben.
+- Die Bild-URLs werden **nur bei eingeschaltetem Artwork** nachgeladen und landen im
+  Cache; ein zweiter Lauf derselben Serie kostet keine weitere Abfrage.
+- Antworten, die kein Bild sind (etwa eine HTML-Fehlerseite), werden verworfen;
+  Bilder über 20 MB ebenfalls. Ein fehlgeschlagener Download bricht nie den Lauf ab,
+  sondern erscheint als Zeile im Log.
+- Untertitel bekommen keine Begleitdateien.
+
+Beides greift sowohl beim manuellen **Übernehmen** als auch im **Automatikbetrieb**.
 
 ## Untertitel
 
