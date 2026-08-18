@@ -79,6 +79,10 @@ class Settings(BaseModel):
     jellyfin_token: str | None = None
     write_nfo: bool | None = None
     download_artwork: bool | None = None
+    artwork_poster: bool | None = None
+    artwork_fanart: bool | None = None
+    artwork_season: bool | None = None
+    artwork_thumb: bool | None = None
     ascii_only: bool | None = None
     windows_safe: bool | None = None
     auth_enabled: bool | None = None

@@ -363,8 +363,23 @@ Titel, Jahr, Genres, Bewertung und die Datenbank-IDs (TMDB/TVDB und, wenn bekann
 IMDb). Filme bekommen `<movie>`, Episoden `<episodedetails>` mit Serientitel, Staffel,
 Episode und Erstausstrahlung.
 
-**Poster und Hintergrundbilder** (`download_artwork`) werden nach den Konventionen
-abgelegt, die Kodi, Jellyfin und Emby verstehen:
+**Poster und Hintergrundbilder** (`download_artwork`) sind über einen **Hauptschalter**
+und vier Einzelschalter steuerbar:
+
+| Schalter | Steuert |
+|---|---|
+| `download_artwork` | **Hauptschalter.** Aus = kein einziger Bildabruf, egal was darunter steht |
+| `artwork_poster` | Poster der Serie bzw. des Films |
+| `artwork_fanart` | Hintergrundbild |
+| `artwork_season` | Staffelposter (beide Ablagen) |
+| `artwork_thumb` | Episodenbild |
+
+Die vier Einzelschalter stehen ab Werk auf „an", wirken aber nur, wenn der
+Hauptschalter gesetzt ist – wer also einfach nur Bilder will, setzt ein Häkchen und
+bekommt alles. Wer etwa nur Poster mag, schaltet die übrigen drei ab. Im Webinterface
+sind die Einzelschalter ausgegraut, solange der Hauptschalter aus ist.
+
+Abgelegt wird nach den Konventionen, die Kodi, Jellyfin und Emby verstehen:
 
 | Was | Wohin |
 |---|---|

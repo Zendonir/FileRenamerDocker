@@ -187,3 +187,72 @@ def test_oversized_image_is_skipped(tmp_path):
 @pytest.mark.parametrize("dests", [{}, {"/anderer/pfad.mkv": "/x/y.mkv"}])
 def test_files_that_were_not_moved_are_ignored(tmp_path, dests):
     assert run_download([movie_item()], dests, settings_for(tmp_path), image_handler) == 0
+
+
+# --- Einzelne Bildarten abschalten -------------------------------------------
+
+def test_master_switch_beats_everything(tmp_path):
+    """Ohne Hauptschalter ist es egal, was einzeln angehakt ist."""
+    settings = settings_for(tmp_path, download_artwork=False, artwork_poster=True,
+                            artwork_fanart=True, artwork_season=True, artwork_thumb=True)
+    dest = tmp_path / "series" / "Dark" / "Season 02" / "x.mkv"
+    assert artwork.targets(series_item(), str(dest), settings) == []
+
+
+def test_poster_alone_can_be_switched_off(tmp_path):
+    """Das Serienposter fällt weg – das gleichnamige Staffelposter bleibt."""
+    settings = settings_for(tmp_path, artwork_poster=False)
+    show = tmp_path / "series" / "Dark"
+    dest = show / "Season 02" / "Dark - S02E05.mkv"
+    paths = [p for _, p in artwork.targets(series_item(), str(dest), settings)]
+    assert show / "poster.jpg" not in paths
+    assert show / "fanart.jpg" in paths
+    assert show / "season02-poster.jpg" in paths
+
+
+def test_fanart_alone_can_be_switched_off(tmp_path):
+    settings = settings_for(tmp_path, artwork_fanart=False)
+    dest = tmp_path / "movies" / "Der Pate (1972)" / "Der Pate (1972).mkv"
+    names = [p.name for _, p in artwork.targets(movie_item(), str(dest), settings)]
+    assert names == ["poster.jpg"]
+
+
+def test_season_poster_alone_can_be_switched_off(tmp_path):
+    """Beide Ablagen des Staffelposters verschwinden, das Serienposter bleibt."""
+    settings = settings_for(tmp_path, artwork_season=False)
+    show = tmp_path / "series" / "Dark"
+    dest = show / "Season 02" / "Dark - S02E05.mkv"
+    paths = [p for _, p in artwork.targets(series_item(), str(dest), settings)]
+    assert show / "season02-poster.jpg" not in paths
+    assert dest.parent / "poster.jpg" not in paths
+    assert show / "poster.jpg" in paths
+
+
+def test_episode_thumb_alone_can_be_switched_off(tmp_path):
+    settings = settings_for(tmp_path, artwork_thumb=False)
+    dest = tmp_path / "series" / "Dark" / "Season 02" / "Dark - S02E05.mkv"
+    names = [p.name for _, p in artwork.targets(series_item(), str(dest), settings)]
+    assert not any(n.endswith("-thumb.jpg") for n in names)
+    assert "poster.jpg" in names
+
+
+def test_all_types_off_downloads_nothing(tmp_path):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return image_handler(request)
+
+    settings = settings_for(tmp_path, artwork_poster=False, artwork_fanart=False,
+                            artwork_season=False, artwork_thumb=False)
+    dest = tmp_path / "series" / "Dark" / "Season 02" / "Dark - S02E05.mkv"
+    assert run_download([series_item()], {"/in/dark.mkv": str(dest)}, settings, handler) == 0
+    assert calls == []
+
+
+def test_types_default_to_on(tmp_path):
+    """Wer nur den Hauptschalter setzt, bekommt alles – ohne weitere Häkchen."""
+    settings = {"series_target": str(tmp_path / "series"), "download_artwork": True}
+    dest = tmp_path / "series" / "Dark" / "Season 02" / "Dark - S02E05.mkv"
+    names = {p.name for _, p in artwork.targets(series_item(), str(dest), settings)}
+    assert {"poster.jpg", "fanart.jpg", "season02-poster.jpg"} <= names

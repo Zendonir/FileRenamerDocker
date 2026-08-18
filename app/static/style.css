@@ -104,6 +104,9 @@ legend { padding: 0 8px; color: var(--accent); font-weight: 600; }
   padding: 28px; width: min(360px, 92vw); }
 .login-box h1 { font-size: 18px; margin: 0 0 20px; }
 .login-box button { width: 100%; margin-top: 6px; }
+.sub-options { margin: 4px 0 10px 24px; padding-left: 12px;
+  border-left: 2px solid var(--line); }
+.sub-options.off { opacity: .4; pointer-events: none; }
 .badge.exists { color: var(--warn); background: #3a2c10; }
 .badge.exists.better { color: var(--ok); background: #10301a; }
 .auto-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;

@@ -25,6 +25,13 @@ def _show_folder(dest: Path, target: str) -> Path | None:
     return Path(target) / parts[0] if len(parts) >= 2 else None
 
 
+def wanted(settings: dict, kind: str) -> bool:
+    """Ist diese Bildart eingeschaltet? Der Hauptschalter hat immer Vorrang."""
+    if not settings.get("download_artwork"):
+        return False
+    return bool(settings.get(f"artwork_{kind}", True))
+
+
 def targets(item: dict, dest: str, settings: dict) -> list[tuple[str, Path]]:
     """Liefert Paare aus Bild-URL und Zieldatei – ohne etwas herunterzuladen."""
     match = item.get("match") or {}
@@ -37,10 +44,10 @@ def targets(item: dict, dest: str, settings: dict) -> list[tuple[str, Path]]:
         target_root = Path(settings.get("movie_target", ""))
         # Liegt der Film in einem eigenen Ordner, gehören die Bilder dorthin.
         own_folder = folder != target_root
-        if match.get("poster_url"):
+        if match.get("poster_url") and wanted(settings, "poster"):
             plan.append((match["poster_url"],
                          folder / ("poster.jpg" if own_folder else f"{dest_path.stem}-poster.jpg")))
-        if match.get("fanart_url"):
+        if match.get("fanart_url") and wanted(settings, "fanart"):
             plan.append((match["fanart_url"],
                          folder / ("fanart.jpg" if own_folder else f"{dest_path.stem}-fanart.jpg")))
         return plan
@@ -48,21 +55,21 @@ def targets(item: dict, dest: str, settings: dict) -> list[tuple[str, Path]]:
     target_root = settings.get(f"{category}_target", "")
     show = _show_folder(dest_path, target_root)
     if show:
-        if match.get("poster_url"):
+        if match.get("poster_url") and wanted(settings, "poster"):
             plan.append((match["poster_url"], show / "poster.jpg"))
-        if match.get("fanart_url"):
+        if match.get("fanart_url") and wanted(settings, "fanart"):
             plan.append((match["fanart_url"], show / "fanart.jpg"))
 
         season = (item.get("guess") or {}).get("season")
         poster = (match.get("season_posters") or {}).get(season) \
             or (match.get("season_posters") or {}).get(str(season))
-        if poster is not None and season is not None:
+        if poster is not None and season is not None and wanted(settings, "season"):
             # Kodi erwartet die Staffelposter im Serienordner, Jellyfin im Staffelordner.
             plan.append((poster, show / f"season{int(season):02d}-poster.jpg"))
             if dest_path.parent != show:
                 plan.append((poster, dest_path.parent / "poster.jpg"))
 
-    if item.get("thumb_url"):
+    if item.get("thumb_url") and wanted(settings, "thumb"):
         plan.append((item["thumb_url"], dest_path.with_suffix("").with_name(
             dest_path.stem + "-thumb.jpg")))
     return plan

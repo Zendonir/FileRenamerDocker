@@ -57,7 +57,11 @@ DEFAULTS = {
 
     # Begleitdateien
     "write_nfo": False,
-    "download_artwork": False,
+    "download_artwork": False,       # Hauptschalter: ohne ihn passiert gar nichts
+    "artwork_poster": True,          # die folgenden greifen nur bei aktivem Hauptschalter
+    "artwork_fanart": True,
+    "artwork_season": True,
+    "artwork_thumb": True,
 
     # Dateinamen
     "ascii_only": False,             # Umlaute umschreiben (ae, oe, ue, ss)

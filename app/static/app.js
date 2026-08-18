@@ -95,8 +95,15 @@ async function loadSettings() {
     ? 'Ein Passwort ist gesetzt. Feld leer lassen, um es beizubehalten.'
     : 'Noch kein Passwort gesetzt – ohne Passwort bleibt die Anmeldung aus.';
   loadCacheInfo();
+  syncArtworkOptions();
   return s;
 }
+
+/* Die einzelnen Bildarten sind nur bei aktivem Hauptschalter bedienbar. */
+function syncArtworkOptions() {
+  $('#artwork-types').classList.toggle('off', !$('#artwork-main').checked);
+}
+$('#artwork-main').addEventListener('change', syncArtworkOptions);
 
 async function loadCacheInfo() {
   try {
